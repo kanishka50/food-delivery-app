@@ -1,1364 +1,1282 @@
--- ============================================================
--- FOOD DELIVERY SYSTEM - OPTIMIZED DATABASE SCHEMA
--- Hotel Chain & Food Delivery Service
--- Version: 3.0 (Optimized & Merged)
--- Date: November 25, 2025
--- Compatible with: MySQL 8.0+, Laravel 10+
--- ============================================================
+CREATE DATABASE  IF NOT EXISTS `food_delivery_db` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci */ /*!80016 DEFAULT ENCRYPTION='N' */;
+USE `food_delivery_db`;
+-- MySQL dump 10.13  Distrib 8.0.38, for Win64 (x86_64)
 --
--- This schema combines the best features from both database versions:
--- - Combined users table architecture (DB2)
--- - Soft delete support (DB2)
--- - JSON address snapshots (DB2)
--- - Laravel Sanctum tokens (DB2)
--- - Many-to-many offer mapping (DB2)
--- - URL slugs for SEO (DB2)
--- - Cached ratings (DB2)
--- - Per-day operating hours (DB2)
--- - Promo codes system (DB1)
--- - Wishlist functionality (DB1)
--- - Security tables (DB1)
--- - Rider assignment history (DB1)
--- - Detailed order timestamps (DB1)
--- - Full-text search (DB1)
--- - CHECK constraints and bug fixes
--- ============================================================
+-- Host: localhost    Database: food_delivery_db
+-- ------------------------------------------------------
+-- Server version	8.0.39
+
+/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
+/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
+/*!50503 SET NAMES utf8 */;
+/*!40103 SET @OLD_TIME_ZONE=@@TIME_ZONE */;
+/*!40103 SET TIME_ZONE='+00:00' */;
+/*!40014 SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0 */;
+/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
+/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
+/*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
 
--- Drop database if exists and create fresh
-DROP DATABASE IF EXISTS food_delivery_db;
-CREATE DATABASE food_delivery_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE food_delivery_db;
-
--- ============================================================
--- 1. USERS & AUTHENTICATION TABLES
--- ============================================================
-
--- Admin Roles Table
-CREATE TABLE admin_roles (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    role_name VARCHAR(50) NOT NULL UNIQUE,
-    description VARCHAR(255) NULL,
-    permissions JSON NOT NULL COMMENT 'JSON array of permission keys',
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_active (is_active)
-) ENGINE=InnoDB;
-
--- Users Table (Customers & Admins - Combined Architecture)
--- Note: Uses SMS OTP for verification, NOT email verification
-CREATE TABLE users (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    username VARCHAR(100) NOT NULL UNIQUE,
-    email VARCHAR(255) NULL UNIQUE COMMENT 'Optional - for receipts/promotions only',
-    phone_number VARCHAR(20) NOT NULL UNIQUE COMMENT 'Mandatory - primary authentication',
-    password VARCHAR(255) NOT NULL,
-    user_type ENUM('customer', 'admin') NOT NULL DEFAULT 'customer',
-    admin_role_id INT UNSIGNED NULL,
-    first_name VARCHAR(100) NULL,
-    last_name VARCHAR(100) NULL,
-    profile_image VARCHAR(500) NULL,
-    is_phone_verified BOOLEAN DEFAULT FALSE COMMENT 'Verified via SMS OTP',
-    is_active BOOLEAN DEFAULT TRUE,
-    terms_accepted_at TIMESTAMP NULL,
-    last_login_at TIMESTAMP NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP NULL COMMENT 'Soft delete',
-    remember_token VARCHAR(100) NULL,
-    FOREIGN KEY (admin_role_id) REFERENCES admin_roles(id) ON DELETE SET NULL,
-    INDEX idx_user_type (user_type),
-    INDEX idx_phone (phone_number),
-    INDEX idx_email (email),
-    INDEX idx_active (is_active),
-    INDEX idx_deleted (deleted_at)
-) ENGINE=InnoDB;
-
--- Riders Table (Separate authentication)
-CREATE TABLE riders (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    rider_id VARCHAR(20) NOT NULL UNIQUE COMMENT 'System generated ID like RDR000001',
-    full_name VARCHAR(150) NOT NULL,
-    phone_number VARCHAR(20) NOT NULL UNIQUE,
-    password VARCHAR(255) NOT NULL,
-    email VARCHAR(255) NULL,
-    profile_image VARCHAR(500) NULL,
-    vehicle_type ENUM('bicycle', 'motorcycle', 'scooter', 'car') DEFAULT 'motorcycle',
-    vehicle_number VARCHAR(50) NULL,
-    license_number VARCHAR(100) NULL,
-    is_active BOOLEAN DEFAULT TRUE,
-    is_available BOOLEAN DEFAULT FALSE COMMENT 'Currently available for deliveries',
-    is_online BOOLEAN DEFAULT FALSE COMMENT 'App online status',
-    current_latitude DECIMAL(10, 8) NULL,
-    current_longitude DECIMAL(11, 8) NULL,
-    last_location_update TIMESTAMP NULL,
-    assigned_branch_id BIGINT UNSIGNED NULL,
-    average_rating DECIMAL(3, 2) DEFAULT 0.00,
-    total_ratings INT DEFAULT 0,
-    total_deliveries INT DEFAULT 0,
-    last_login_at TIMESTAMP NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP NULL,
-    INDEX idx_rider_id (rider_id),
-    INDEX idx_phone (phone_number),
-    INDEX idx_availability (is_active, is_available, is_online),
-    INDEX idx_location (current_latitude, current_longitude),
-    INDEX idx_branch (assigned_branch_id),
-    INDEX idx_deleted (deleted_at)
-) ENGINE=InnoDB;
-
--- OTP Verifications Table
-CREATE TABLE otp_verifications (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    phone_number VARCHAR(20) NOT NULL,
-    otp_code VARCHAR(6) NOT NULL,
-    purpose ENUM('registration', 'login', 'password_reset', 'phone_change') NOT NULL,
-    is_verified BOOLEAN DEFAULT FALSE,
-    attempts INT DEFAULT 0 COMMENT 'Failed verification attempts',
-    max_attempts INT DEFAULT 3,
-    expires_at TIMESTAMP NOT NULL,
-    verified_at TIMESTAMP NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_phone_otp (phone_number, otp_code),
-    INDEX idx_expires (expires_at),
-    INDEX idx_purpose (purpose)
-) ENGINE=InnoDB;
-
--- Password Reset Tokens Table (REMOVED - Using SMS OTP instead)
--- Password resets are now handled via otp_verifications table with purpose='password_reset'
-
--- Customer Delivery Addresses
-CREATE TABLE customer_addresses (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    user_id BIGINT UNSIGNED NOT NULL,
-    address_label VARCHAR(50) NULL COMMENT 'Home, Office, etc.',
-    address_line_1 VARCHAR(255) NOT NULL,
-    address_line_2 VARCHAR(255) NULL,
-    city VARCHAR(100) NOT NULL,
-    district VARCHAR(100) NULL,
-    postal_code VARCHAR(20) NULL,
-    latitude DECIMAL(10, 8) NOT NULL,
-    longitude DECIMAL(11, 8) NOT NULL,
-    is_default BOOLEAN DEFAULT FALSE,
-    special_instructions TEXT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP NULL,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    INDEX idx_user (user_id),
-    INDEX idx_default (user_id, is_default),
-    INDEX idx_location (latitude, longitude),
-    INDEX idx_deleted (deleted_at)
-) ENGINE=InnoDB;
-
--- ============================================================
--- 2. BRANCH MANAGEMENT TABLES
--- ============================================================
-
--- Restaurant Branches Table
-CREATE TABLE branches (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    branch_name VARCHAR(150) NOT NULL,
-    branch_code VARCHAR(20) NOT NULL UNIQUE,
-    branch_slug VARCHAR(150) NOT NULL UNIQUE COMMENT 'URL-friendly slug',
-    address VARCHAR(500) NOT NULL,
-    city VARCHAR(100) NOT NULL,
-    district VARCHAR(100) NULL,
-    latitude DECIMAL(10, 8) NOT NULL,
-    longitude DECIMAL(11, 8) NOT NULL,
-    delivery_radius_km DECIMAL(5, 2) NOT NULL DEFAULT 10.00 COMMENT 'Delivery radius in kilometers',
-    contact_number VARCHAR(20) NOT NULL,
-    email VARCHAR(255) NULL,
-    opening_time TIME NOT NULL DEFAULT '08:00:00',
-    closing_time TIME NOT NULL DEFAULT '22:00:00',
-    -- Per-day operating schedule
-    is_open_sunday BOOLEAN DEFAULT TRUE,
-    is_open_monday BOOLEAN DEFAULT TRUE,
-    is_open_tuesday BOOLEAN DEFAULT TRUE,
-    is_open_wednesday BOOLEAN DEFAULT TRUE,
-    is_open_thursday BOOLEAN DEFAULT TRUE,
-    is_open_friday BOOLEAN DEFAULT TRUE,
-    is_open_saturday BOOLEAN DEFAULT TRUE,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP NULL,
-    INDEX idx_location (latitude, longitude),
-    INDEX idx_active (is_active),
-    INDEX idx_city (city),
-    INDEX idx_deleted (deleted_at),
-    CONSTRAINT chk_opening_hours CHECK (opening_time < closing_time)
-) ENGINE=InnoDB;
-
--- Add foreign key for rider branch assignment
-ALTER TABLE riders
-ADD CONSTRAINT fk_rider_branch
-FOREIGN KEY (assigned_branch_id) REFERENCES branches(id) ON DELETE SET NULL;
-
--- ============================================================
--- 3. MENU & PRODUCT MANAGEMENT TABLES
--- ============================================================
-
--- Food Categories Table
-CREATE TABLE food_categories (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    category_name VARCHAR(100) NOT NULL,
-    category_slug VARCHAR(100) NOT NULL UNIQUE COMMENT 'URL-friendly slug',
-    description TEXT NULL,
-    image VARCHAR(500) NULL,
-    display_order INT DEFAULT 0,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP NULL,
-    INDEX idx_active_order (is_active, display_order),
-    INDEX idx_slug (category_slug),
-    INDEX idx_deleted (deleted_at)
-) ENGINE=InnoDB;
-
--- Food Items Table
-CREATE TABLE food_items (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    category_id INT UNSIGNED NOT NULL,
-    item_name VARCHAR(200) NOT NULL,
-    item_slug VARCHAR(200) NOT NULL UNIQUE COMMENT 'URL-friendly slug',
-    description TEXT NULL,
-    ingredients TEXT NULL COMMENT 'List of ingredients',
-    image VARCHAR(500) NULL,
-    base_price DECIMAL(10, 2) NOT NULL COMMENT 'Default price if no variations',
-    has_variations BOOLEAN DEFAULT FALSE,
-    is_vegetarian BOOLEAN DEFAULT FALSE,
-    is_vegan BOOLEAN DEFAULT FALSE,
-    is_spicy BOOLEAN DEFAULT FALSE,
-    spicy_level TINYINT DEFAULT 0 COMMENT '0-5 spicy scale',
-    preparation_time_minutes INT DEFAULT 20,
-    display_order INT DEFAULT 0,
-    is_available BOOLEAN DEFAULT TRUE,
-    is_active BOOLEAN DEFAULT TRUE,
-    -- Cached rating for performance
-    average_rating DECIMAL(3, 2) DEFAULT 0.00,
-    total_ratings INT DEFAULT 0,
-    total_orders INT DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP NULL,
-    FOREIGN KEY (category_id) REFERENCES food_categories(id) ON DELETE RESTRICT,
-    INDEX idx_category (category_id),
-    INDEX idx_slug (item_slug),
-    INDEX idx_active (is_active, is_available),
-    INDEX idx_rating (average_rating DESC),
-    INDEX idx_popular (total_orders DESC),
-    INDEX idx_deleted (deleted_at),
-    FULLTEXT INDEX ft_search (item_name, description, ingredients),
-    CONSTRAINT chk_spicy_level CHECK (spicy_level >= 0 AND spicy_level <= 5)
-) ENGINE=InnoDB;
-
--- Item Size Variations Table
-CREATE TABLE item_variations (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    food_item_id BIGINT UNSIGNED NOT NULL,
-    variation_name VARCHAR(50) NOT NULL COMMENT 'Small, Medium, Large, etc.',
-    price DECIMAL(10, 2) NOT NULL,
-    is_default BOOLEAN DEFAULT FALSE,
-    is_available BOOLEAN DEFAULT TRUE,
-    display_order INT DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (food_item_id) REFERENCES food_items(id) ON DELETE CASCADE,
-    UNIQUE KEY uk_item_variation (food_item_id, variation_name),
-    INDEX idx_item (food_item_id),
-    INDEX idx_available (is_available)
-) ENGINE=InnoDB;
-
-
--- Branch Menu Availability
-CREATE TABLE branch_menu_availability (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    branch_id BIGINT UNSIGNED NOT NULL,
-    food_item_id BIGINT UNSIGNED NOT NULL,
-    is_available BOOLEAN DEFAULT TRUE,
-    custom_price DECIMAL(10, 2) NULL COMMENT 'Override price for this branch',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
-    FOREIGN KEY (food_item_id) REFERENCES food_items(id) ON DELETE CASCADE,
-    UNIQUE KEY uk_branch_item (branch_id, food_item_id),
-    INDEX idx_branch (branch_id),
-    INDEX idx_item (food_item_id),
-    INDEX idx_available (branch_id, is_available)
-) ENGINE=InnoDB;
-
--- ============================================================
--- 4. OFFERS & PROMOTIONS TABLES
--- ============================================================
-
--- Offers Table (Automatic discounts)
-CREATE TABLE offers (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    offer_name VARCHAR(150) NOT NULL,
-    offer_slug VARCHAR(150) NOT NULL UNIQUE,
-    description TEXT NULL,
-    discount_type ENUM('percentage', 'fixed_amount') NOT NULL,
-    discount_value DECIMAL(10, 2) NOT NULL,
-    minimum_order_amount DECIMAL(10, 2) DEFAULT 0.00,
-    maximum_discount_amount DECIMAL(10, 2) NULL COMMENT 'Cap for percentage discounts',
-    applicable_to ENUM('all_items', 'specific_items', 'specific_categories') DEFAULT 'all_items',
-    branch_id BIGINT UNSIGNED NULL COMMENT 'NULL = all branches',
-    start_date DATETIME NOT NULL,
-    end_date DATETIME NOT NULL,
-    usage_limit INT NULL COMMENT 'Total times offer can be used',
-    times_used INT DEFAULT 0,
-    image VARCHAR(500) NULL,
-    is_featured BOOLEAN DEFAULT FALSE,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP NULL,
-    FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
-    INDEX idx_active_dates (is_active, start_date, end_date),
-    INDEX idx_slug (offer_slug),
-    INDEX idx_branch (branch_id),
-    INDEX idx_featured (is_featured, is_active),
-    INDEX idx_deleted (deleted_at),
-    CONSTRAINT chk_offer_dates CHECK (start_date < end_date),
-    CONSTRAINT chk_offer_percentage CHECK (discount_type != 'percentage' OR discount_value <= 100)
-) ENGINE=InnoDB;
-
--- Offer-Item Mapping (Many-to-Many)
-CREATE TABLE offer_items (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    offer_id BIGINT UNSIGNED NOT NULL,
-    food_item_id BIGINT UNSIGNED NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (offer_id) REFERENCES offers(id) ON DELETE CASCADE,
-    FOREIGN KEY (food_item_id) REFERENCES food_items(id) ON DELETE CASCADE,
-    UNIQUE KEY uk_offer_item (offer_id, food_item_id)
-) ENGINE=InnoDB;
-
--- Offer-Category Mapping (Many-to-Many)
-CREATE TABLE offer_categories (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    offer_id BIGINT UNSIGNED NOT NULL,
-    category_id INT UNSIGNED NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (offer_id) REFERENCES offers(id) ON DELETE CASCADE,
-    FOREIGN KEY (category_id) REFERENCES food_categories(id) ON DELETE CASCADE,
-    UNIQUE KEY uk_offer_category (offer_id, category_id)
-) ENGINE=InnoDB;
-
--- Promo Codes Table (User-entered codes)
-CREATE TABLE promo_codes (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    code VARCHAR(50) NOT NULL UNIQUE,
-    description TEXT NULL,
-    discount_type ENUM('percentage', 'fixed_amount') NOT NULL,
-    discount_value DECIMAL(10, 2) NOT NULL,
-    min_order_amount DECIMAL(10, 2) NULL COMMENT 'Minimum order amount to apply',
-    max_discount_amount DECIMAL(10, 2) NULL COMMENT 'Cap for percentage discounts',
-    usage_limit INT NULL COMMENT 'Total times code can be used',
-    usage_limit_per_user INT DEFAULT 1 COMMENT 'Per user limit',
-    times_used INT DEFAULT 0,
-    valid_from DATETIME NOT NULL,
-    valid_until DATETIME NOT NULL,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_by BIGINT UNSIGNED NULL COMMENT 'Admin who created',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP NULL,
-    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
-    INDEX idx_code (code),
-    INDEX idx_active (is_active),
-    INDEX idx_dates (valid_from, valid_until, is_active),
-    INDEX idx_deleted (deleted_at),
-    CONSTRAINT chk_promo_dates CHECK (valid_from < valid_until),
-    CONSTRAINT chk_promo_percentage CHECK (discount_type != 'percentage' OR discount_value <= 100)
-) ENGINE=InnoDB;
-
--- Promo Code Usage Tracking
-CREATE TABLE promo_code_usage (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    promo_code_id BIGINT UNSIGNED NOT NULL,
-    user_id BIGINT UNSIGNED NOT NULL,
-    order_id BIGINT UNSIGNED NOT NULL,
-    discount_amount DECIMAL(10, 2) NOT NULL,
-    used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (promo_code_id) REFERENCES promo_codes(id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    INDEX idx_user (user_id),
-    INDEX idx_promo (promo_code_id),
-    INDEX idx_user_promo (user_id, promo_code_id)
-) ENGINE=InnoDB;
-
--- ============================================================
--- 5. SHOPPING CART & WISHLIST TABLES
--- ============================================================
-
--- Shopping Carts (Per user per branch)
-CREATE TABLE shopping_carts (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    user_id BIGINT UNSIGNED NOT NULL,
-    branch_id BIGINT UNSIGNED NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
-    UNIQUE KEY uk_user_branch (user_id, branch_id)
-) ENGINE=InnoDB;
-
--- Cart Items
-CREATE TABLE cart_items (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    cart_id BIGINT UNSIGNED NOT NULL,
-    food_item_id BIGINT UNSIGNED NOT NULL,
-    variation_id BIGINT UNSIGNED NULL,
-    quantity INT NOT NULL DEFAULT 1,
-    special_instructions TEXT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (cart_id) REFERENCES shopping_carts(id) ON DELETE CASCADE,
-    FOREIGN KEY (food_item_id) REFERENCES food_items(id) ON DELETE CASCADE,
-    FOREIGN KEY (variation_id) REFERENCES item_variations(id) ON DELETE SET NULL,
-    UNIQUE KEY uk_cart_item (cart_id, food_item_id, variation_id),
-    INDEX idx_cart (cart_id),
-    CONSTRAINT chk_quantity CHECK (quantity > 0)
-) ENGINE=InnoDB;
-
--- User Wishlist
-CREATE TABLE user_wishlist (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    user_id BIGINT UNSIGNED NOT NULL,
-    food_item_id BIGINT UNSIGNED NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (food_item_id) REFERENCES food_items(id) ON DELETE CASCADE,
-    UNIQUE KEY uk_user_wishlist (user_id, food_item_id),
-    INDEX idx_user (user_id)
-) ENGINE=InnoDB;
-
--- ============================================================
--- 6. ORDER MANAGEMENT TABLES
--- ============================================================
-
--- Orders Table
-CREATE TABLE orders (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    order_number VARCHAR(30) NOT NULL UNIQUE,
-    user_id BIGINT UNSIGNED NOT NULL,
-    branch_id BIGINT UNSIGNED NOT NULL,
-    rider_id BIGINT UNSIGNED NULL,
-    delivery_address_id BIGINT UNSIGNED NOT NULL,
-
-    -- Delivery Address Snapshot (preserved even if address deleted)
-    delivery_address_snapshot JSON NOT NULL,
-
-    -- Order Status
-    order_status ENUM(
-        'pending',           -- Just placed, waiting for admin
-        'confirmed',         -- Admin confirmed with restaurant
-        'processing',        -- Restaurant preparing
-        'ready_for_pickup',  -- Ready for rider
-        'picked_up',         -- Rider collected
-        'delivering',        -- On the way
-        'delivered',         -- Successfully delivered
-        'cancelled'          -- Cancelled
-    ) NOT NULL DEFAULT 'pending',
-
-    -- Verification
-    verification_code VARCHAR(4) NOT NULL COMMENT '4-digit code',
-    is_verified BOOLEAN DEFAULT FALSE,
-    verified_at TIMESTAMP NULL,
-
-    -- Payment Details
-    payment_method ENUM('online', 'cash_on_delivery') NOT NULL,
-    payment_status ENUM('pending', 'processing', 'completed', 'failed', 'refunded') DEFAULT 'pending',
-    payment_gateway_reference VARCHAR(100) NULL,
-
-    -- Pricing Breakdown (Snapshot at order time)
-    subtotal DECIMAL(10, 2) NOT NULL COMMENT 'Food items total',
-    service_fee DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-    service_fee_percentage DECIMAL(5, 2) NOT NULL COMMENT 'Fee % at order time',
-    delivery_fee DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-    delivery_distance_km DECIMAL(5, 2) NOT NULL,
-    delivery_rate_per_km DECIMAL(10, 2) NOT NULL COMMENT 'Rate at order time',
-    rider_tip DECIMAL(10, 2) DEFAULT 0.00,
-    discount_amount DECIMAL(10, 2) DEFAULT 0.00,
-    offer_id BIGINT UNSIGNED NULL,
-    promo_code_id BIGINT UNSIGNED NULL,
-    total_amount DECIMAL(10, 2) NOT NULL,
-
-    -- Timestamps for each status
-    confirmed_at TIMESTAMP NULL,
-    processing_started_at TIMESTAMP NULL,
-    ready_at TIMESTAMP NULL,
-    picked_up_at TIMESTAMP NULL,
-    delivered_at TIMESTAMP NULL,
-    cancelled_at TIMESTAMP NULL,
-    cancelled_by_type ENUM('customer', 'admin', 'rider', 'system') NULL,
-    cancelled_by_id BIGINT UNSIGNED NULL,
-    cancellation_reason TEXT NULL,
-
-    -- Additional Info
-    customer_notes TEXT NULL,
-    admin_notes TEXT NULL,
-    estimated_delivery_time DATETIME NULL,
-    actual_delivery_time DATETIME NULL,
-
-    -- Admin tracking
-    admin_reminder_count INT DEFAULT 0,
-    last_reminder_at TIMESTAMP NULL,
-
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT,
-    FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE RESTRICT,
-    FOREIGN KEY (rider_id) REFERENCES riders(id) ON DELETE SET NULL,
-    FOREIGN KEY (delivery_address_id) REFERENCES customer_addresses(id) ON DELETE RESTRICT,
-    FOREIGN KEY (offer_id) REFERENCES offers(id) ON DELETE SET NULL,
-    FOREIGN KEY (promo_code_id) REFERENCES promo_codes(id) ON DELETE SET NULL,
-
-    INDEX idx_order_number (order_number),
-    INDEX idx_user (user_id),
-    INDEX idx_branch (branch_id),
-    INDEX idx_rider (rider_id),
-    INDEX idx_status (order_status),
-    INDEX idx_payment_status (payment_status),
-    INDEX idx_created (created_at),
-    INDEX idx_status_created (order_status, created_at),
-    INDEX idx_user_status (user_id, order_status),
-    INDEX idx_branch_status (branch_id, order_status),
-    INDEX idx_pending (order_status, created_at) COMMENT 'For dashboard pending orders'
-) ENGINE=InnoDB;
-
--- Add foreign key for promo_code_usage after orders table exists
-ALTER TABLE promo_code_usage
-ADD CONSTRAINT fk_promo_usage_order
-FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE;
-
--- Order Items Table
-CREATE TABLE order_items (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    order_id BIGINT UNSIGNED NOT NULL,
-    food_item_id BIGINT UNSIGNED NOT NULL,
-    variation_id BIGINT UNSIGNED NULL,
-
-    -- Snapshot of item details at order time
-    item_name VARCHAR(200) NOT NULL,
-    variation_name VARCHAR(50) NULL,
-    unit_price DECIMAL(10, 2) NOT NULL,
-    quantity INT NOT NULL DEFAULT 1,
-    total_price DECIMAL(10, 2) NOT NULL,
-    special_instructions TEXT NULL,
-
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
-    FOREIGN KEY (food_item_id) REFERENCES food_items(id) ON DELETE RESTRICT,
-    FOREIGN KEY (variation_id) REFERENCES item_variations(id) ON DELETE SET NULL,
-
-    INDEX idx_order (order_id),
-    INDEX idx_item (food_item_id),
-    CONSTRAINT chk_item_quantity CHECK (quantity > 0)
-) ENGINE=InnoDB;
-
--- Order Status History
-CREATE TABLE order_status_history (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    order_id BIGINT UNSIGNED NOT NULL,
-    old_status VARCHAR(50) NULL,
-    new_status VARCHAR(50) NOT NULL,
-    changed_by_type ENUM('customer', 'admin', 'rider', 'system') NOT NULL,
-    changed_by_id BIGINT UNSIGNED NULL,
-    notes TEXT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
-    INDEX idx_order (order_id),
-    INDEX idx_created (created_at)
-) ENGINE=InnoDB;
-
--- ============================================================
--- 7. PAYMENT & TRANSACTIONS TABLES
--- ============================================================
-
--- Payment Transactions Table
-CREATE TABLE payment_transactions (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    order_id BIGINT UNSIGNED NOT NULL,
-    transaction_type ENUM('payment', 'refund') NOT NULL,
-    payment_method ENUM('online', 'cash_on_delivery') NOT NULL,
-    gateway_name VARCHAR(50) NULL COMMENT 'PayHere, Stripe, etc.',
-    gateway_transaction_id VARCHAR(100) NULL,
-    gateway_response JSON NULL,
-    amount DECIMAL(10, 2) NOT NULL,
-    currency VARCHAR(3) DEFAULT 'LKR',
-    status ENUM('pending', 'processing', 'completed', 'failed', 'refunded') NOT NULL,
-    failure_reason TEXT NULL,
-    completed_at TIMESTAMP NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
-    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE RESTRICT,
-    INDEX idx_order (order_id),
-    INDEX idx_gateway_txn (gateway_transaction_id),
-    INDEX idx_status (status)
-) ENGINE=InnoDB;
-
--- ============================================================
--- 8. RIDER MANAGEMENT TABLES
--- ============================================================
-
--- Rider Order Notifications/Assignments
-CREATE TABLE rider_order_notifications (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    order_id BIGINT UNSIGNED NOT NULL,
-    rider_id BIGINT UNSIGNED NOT NULL,
-    notification_sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    response ENUM('pending', 'accepted', 'declined', 'expired') DEFAULT 'pending',
-    responded_at TIMESTAMP NULL,
-    decline_reason TEXT NULL,
-
-    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
-    FOREIGN KEY (rider_id) REFERENCES riders(id) ON DELETE CASCADE,
-    UNIQUE KEY uk_order_rider (order_id, rider_id),
-    INDEX idx_rider_pending (rider_id, response)
-) ENGINE=InnoDB;
-
--- Rider Assignment History (Track all assignments/reassignments)
-CREATE TABLE order_rider_assignments (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    order_id BIGINT UNSIGNED NOT NULL,
-    rider_id BIGINT UNSIGNED NOT NULL,
-    assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    assigned_by_type ENUM('system', 'admin') DEFAULT 'system',
-    assigned_by_id BIGINT UNSIGNED NULL COMMENT 'Admin ID if manual',
-    unassigned_at TIMESTAMP NULL,
-    unassignment_reason TEXT NULL,
-
-    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
-    FOREIGN KEY (rider_id) REFERENCES riders(id) ON DELETE CASCADE,
-    INDEX idx_order (order_id),
-    INDEX idx_rider (rider_id),
-    INDEX idx_assigned (assigned_at)
-) ENGINE=InnoDB;
-
--- Rider Daily Earnings
-CREATE TABLE rider_daily_earnings (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    rider_id BIGINT UNSIGNED NOT NULL,
-    earning_date DATE NOT NULL,
-    total_deliveries INT DEFAULT 0,
-    total_tips_collected DECIMAL(10, 2) DEFAULT 0.00,
-    total_cash_collected DECIMAL(10, 2) DEFAULT 0.00 COMMENT 'Cash from COD orders',
-    cash_submitted DECIMAL(10, 2) DEFAULT 0.00 COMMENT 'Handed over to company',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
-    FOREIGN KEY (rider_id) REFERENCES riders(id) ON DELETE CASCADE,
-    UNIQUE KEY uk_rider_date (rider_id, earning_date),
-    INDEX idx_date (earning_date)
-) ENGINE=InnoDB;
-
--- Rider Location History
-CREATE TABLE rider_location_history (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    rider_id BIGINT UNSIGNED NOT NULL,
-    order_id BIGINT UNSIGNED NULL COMMENT 'If tracking during delivery',
-    latitude DECIMAL(10, 8) NOT NULL,
-    longitude DECIMAL(11, 8) NOT NULL,
-    speed DECIMAL(5, 2) NULL COMMENT 'km/h',
-    heading DECIMAL(5, 2) NULL COMMENT 'Direction in degrees',
-    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-    FOREIGN KEY (rider_id) REFERENCES riders(id) ON DELETE CASCADE,
-    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL,
-    INDEX idx_rider_time (rider_id, recorded_at),
-    INDEX idx_order (order_id)
-) ENGINE=InnoDB;
-
--- ============================================================
--- 9. RATINGS & REVIEWS TABLES
--- ============================================================
-
--- Food Item Reviews
-CREATE TABLE food_reviews (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    order_id BIGINT UNSIGNED NOT NULL,
-    order_item_id BIGINT UNSIGNED NOT NULL,
-    user_id BIGINT UNSIGNED NOT NULL,
-    food_item_id BIGINT UNSIGNED NOT NULL,
-    rating TINYINT NOT NULL,
-    review_text TEXT NULL,
-    is_approved BOOLEAN DEFAULT TRUE,
-    admin_response TEXT NULL,
-    responded_at TIMESTAMP NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
-    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
-    FOREIGN KEY (order_item_id) REFERENCES order_items(id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (food_item_id) REFERENCES food_items(id) ON DELETE CASCADE,
-    UNIQUE KEY uk_order_item_review (order_item_id),
-    INDEX idx_food_item (food_item_id),
-    INDEX idx_rating (rating),
-    INDEX idx_approved (is_approved),
-    CONSTRAINT chk_food_rating CHECK (rating >= 1 AND rating <= 5)
-) ENGINE=InnoDB;
-
--- Rider Reviews
-CREATE TABLE rider_reviews (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    order_id BIGINT UNSIGNED NOT NULL,
-    user_id BIGINT UNSIGNED NOT NULL,
-    rider_id BIGINT UNSIGNED NOT NULL,
-    rating TINYINT NOT NULL,
-    review_text TEXT NULL,
-    is_approved BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
-    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (rider_id) REFERENCES riders(id) ON DELETE CASCADE,
-    UNIQUE KEY uk_order_rider_review (order_id),
-    INDEX idx_rider (rider_id),
-    INDEX idx_rating (rating),
-    CONSTRAINT chk_rider_rating CHECK (rating >= 1 AND rating <= 5)
-) ENGINE=InnoDB;
-
--- ============================================================
--- 10. NOTIFICATIONS & LOGS TABLES
--- ============================================================
-
--- Notification Logs
-CREATE TABLE notification_logs (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    notification_type ENUM('sms', 'email', 'push', 'in_app') NOT NULL,
-    recipient_type ENUM('customer', 'rider', 'admin') NOT NULL,
-    recipient_id BIGINT UNSIGNED NOT NULL,
-    recipient_contact VARCHAR(255) NOT NULL COMMENT 'Phone/Email/Device ID',
-    title VARCHAR(255) NULL,
-    message TEXT NOT NULL,
-    data JSON NULL COMMENT 'Additional payload',
-    status ENUM('pending', 'sent', 'failed', 'read') DEFAULT 'pending',
-    failure_reason TEXT NULL,
-    related_order_id BIGINT UNSIGNED NULL,
-    sent_at TIMESTAMP NULL,
-    read_at TIMESTAMP NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-    INDEX idx_recipient (recipient_type, recipient_id),
-    INDEX idx_status (status),
-    INDEX idx_order (related_order_id),
-    INDEX idx_created (created_at),
-    INDEX idx_unread (recipient_type, recipient_id, status)
-) ENGINE=InnoDB;
-
--- Admin Activity Logs
-CREATE TABLE admin_activity_logs (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    admin_user_id BIGINT UNSIGNED NOT NULL,
-    action VARCHAR(100) NOT NULL,
-    entity_type VARCHAR(50) NULL COMMENT 'order, menu_item, rider, etc.',
-    entity_id BIGINT UNSIGNED NULL,
-    old_values JSON NULL,
-    new_values JSON NULL,
-    ip_address VARCHAR(45) NULL,
-    user_agent TEXT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-    FOREIGN KEY (admin_user_id) REFERENCES users(id) ON DELETE CASCADE,
-    INDEX idx_admin (admin_user_id),
-    INDEX idx_action (action),
-    INDEX idx_entity (entity_type, entity_id),
-    INDEX idx_created (created_at)
-) ENGINE=InnoDB;
-
--- ============================================================
--- 11. SYSTEM CONFIGURATION TABLES
--- ============================================================
-
--- System Settings
-CREATE TABLE system_settings (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    setting_key VARCHAR(100) NOT NULL UNIQUE,
-    setting_value TEXT NOT NULL,
-    setting_type ENUM('string', 'number', 'boolean', 'json') DEFAULT 'string',
-    description VARCHAR(255) NULL,
-    is_public BOOLEAN DEFAULT FALSE COMMENT 'Visible to frontend',
-    is_editable BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_key (setting_key),
-    INDEX idx_public (is_public)
-) ENGINE=InnoDB;
-
--- API Rate Limits
-CREATE TABLE api_rate_limits (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    ip_address VARCHAR(45) NOT NULL,
-    endpoint VARCHAR(255) NOT NULL,
-    request_count INT DEFAULT 1,
-    window_start TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    last_request_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_ip_endpoint (ip_address, endpoint),
-    INDEX idx_window (window_start)
-) ENGINE=InnoDB;
-
--- ============================================================
--- 12. API TOKENS TABLE (Laravel Sanctum Compatible)
--- ============================================================
-
-CREATE TABLE personal_access_tokens (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    tokenable_type VARCHAR(255) NOT NULL,
-    tokenable_id BIGINT UNSIGNED NOT NULL,
-    name VARCHAR(255) NOT NULL,
-    token VARCHAR(64) NOT NULL UNIQUE,
-    abilities TEXT NULL,
-    last_used_at TIMESTAMP NULL,
-    expires_at TIMESTAMP NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
-    INDEX idx_tokenable (tokenable_type, tokenable_id),
-    INDEX idx_token (token)
-) ENGINE=InnoDB;
-
--- ============================================================
--- 13. INSERT DEFAULT DATA
--- ============================================================
-
--- Insert Default Admin Roles
-INSERT INTO admin_roles (role_name, description, permissions) VALUES
-('super_admin', 'Full system access', '["all"]'),
-('branch_manager', 'Branch level management', '["orders.view", "orders.update", "menu.view", "riders.view", "reports.branch"]'),
-('order_handler', 'Order management only', '["orders.view", "orders.update", "orders.call_restaurant"]'),
-('support_agent', 'Customer support', '["orders.view", "customers.view", "refunds.request"]');
-
--- Insert Default System Settings
-INSERT INTO system_settings (setting_key, setting_value, setting_type, description, is_public) VALUES
-('service_fee_percentage', '10', 'number', 'Service fee percentage added to orders', TRUE),
-('delivery_rate_per_km', '50', 'number', 'Delivery charge per kilometer in LKR', TRUE),
-('minimum_order_amount', '500', 'number', 'Minimum order amount in LKR', TRUE),
-('max_delivery_radius_km', '15', 'number', 'Maximum delivery radius in kilometers', FALSE),
-('order_reminder_interval_minutes', '5', 'number', 'Interval for unconfirmed order reminders', FALSE),
-('max_otp_attempts', '3', 'number', 'Maximum OTP verification attempts', FALSE),
-('otp_expiry_minutes', '5', 'number', 'OTP validity in minutes', FALSE),
-('support_hotline', '+94771234567', 'string', 'Customer support hotline number', TRUE),
-('support_email', 'support@example.com', 'string', 'Customer support email', TRUE),
-('currency', 'LKR', 'string', 'Default currency', TRUE),
-('currency_symbol', 'Rs.', 'string', 'Currency symbol', TRUE),
-('tax_percentage', '0', 'number', 'Tax percentage if applicable', TRUE),
-('app_name', 'Food Delivery', 'string', 'Application name', TRUE),
-('maintenance_mode', 'false', 'boolean', 'Enable maintenance mode', FALSE),
-('rider_auto_assignment', 'true', 'boolean', 'Auto-assign nearest available rider', FALSE);
-
--- Insert Sample Branches
-INSERT INTO branches (branch_name, branch_code, branch_slug, address, city, district, latitude, longitude, delivery_radius_km, contact_number, email) VALUES
-('Rajagiriya Branch', 'BR001', 'rajagiriya', '123 Rajagiriya Road, Rajagiriya', 'Rajagiriya', 'Colombo', 6.9023, 79.8918, 8.00, '+94112345001', 'rajagiriya@example.com'),
-('Colombo 03 Branch', 'BR002', 'colombo-03', '456 Galle Road, Colombo 03', 'Colombo', 'Colombo', 6.9147, 79.8572, 10.00, '+94112345002', 'colombo03@example.com');
-
--- Insert Sample Food Categories
-INSERT INTO food_categories (category_name, category_slug, description, display_order) VALUES
-('Pizza', 'pizza', 'Delicious pizzas with various toppings', 1),
-('Burgers', 'burgers', 'Juicy burgers and sandwiches', 2),
-('Pasta', 'pasta', 'Italian pasta dishes', 3),
-('Drinks', 'drinks', 'Refreshing beverages', 4),
-('Desserts', 'desserts', 'Sweet treats and desserts', 5),
-('Sides', 'sides', 'Side dishes and appetizers', 6);
-
--- Insert Default Super Admin User
-INSERT INTO users (username, email, phone_number, password, user_type, admin_role_id, first_name, last_name, is_phone_verified, is_email_verified) VALUES
-('superadmin', 'admin@gmail.com', '+94771234567', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'admin', 1, 'Super', 'Admin', TRUE, TRUE);
--- Note: Default password is 'password' (bcrypt hashed)
--- Change email to your domain (e.g., admin@yourdomain.lk) for production
-
--- ============================================================
--- 14. STORED PROCEDURES & FUNCTIONS
--- ============================================================
-
--- Enable function creation with binary logging (run once as admin if needed)
--- SET GLOBAL log_bin_trust_function_creators = 1;
-
-DELIMITER //
-
--- Function to generate unique order number
-CREATE FUNCTION generate_order_number()
-RETURNS VARCHAR(30)
-READS SQL DATA
-BEGIN
-    DECLARE new_order_number VARCHAR(30);
-    DECLARE order_exists INT DEFAULT 1;
-
-    WHILE order_exists > 0 DO
-        SET new_order_number = CONCAT('ORD', DATE_FORMAT(NOW(), '%Y%m%d'), LPAD(FLOOR(RAND() * 999999), 6, '0'));
-        SELECT COUNT(*) INTO order_exists FROM orders WHERE order_number = new_order_number;
-    END WHILE;
-
-    RETURN new_order_number;
-END //
-
--- Function to generate 4-digit verification code
-CREATE FUNCTION generate_verification_code()
-RETURNS VARCHAR(4)
-NO SQL
-BEGIN
-    RETURN LPAD(FLOOR(RAND() * 10000), 4, '0');
-END //
-
--- Function to generate unique rider ID
-CREATE FUNCTION generate_rider_id()
-RETURNS VARCHAR(20)
-READS SQL DATA
-BEGIN
-    DECLARE new_rider_id VARCHAR(20);
-    DECLARE id_exists INT DEFAULT 1;
-
-    WHILE id_exists > 0 DO
-        SET new_rider_id = CONCAT('RDR', LPAD(FLOOR(RAND() * 999999), 6, '0'));
-        SELECT COUNT(*) INTO id_exists FROM riders WHERE rider_id = new_rider_id;
-    END WHILE;
-
-    RETURN new_rider_id;
-END //
-
--- Procedure to calculate delivery fee
-CREATE PROCEDURE calculate_delivery_fee(
-    IN p_distance_km DECIMAL(5,2),
-    OUT p_delivery_fee DECIMAL(10,2)
-)
-BEGIN
-    DECLARE rate_per_km DECIMAL(10,2);
-
-    SELECT CAST(setting_value AS DECIMAL(10,2)) INTO rate_per_km
-    FROM system_settings
-    WHERE setting_key = 'delivery_rate_per_km';
-
-    SET p_delivery_fee = p_distance_km * rate_per_km;
-END //
-
--- Procedure to update food item average rating
-CREATE PROCEDURE update_food_item_rating(IN p_food_item_id BIGINT)
-BEGIN
-    UPDATE food_items
-    SET
-        average_rating = (
-            SELECT COALESCE(AVG(rating), 0)
-            FROM food_reviews
-            WHERE food_item_id = p_food_item_id AND is_approved = TRUE
-        ),
-        total_ratings = (
-            SELECT COUNT(*)
-            FROM food_reviews
-            WHERE food_item_id = p_food_item_id AND is_approved = TRUE
-        )
-    WHERE id = p_food_item_id;
-END //
-
--- Procedure to update rider average rating
-CREATE PROCEDURE update_rider_rating(IN p_rider_id BIGINT)
-BEGIN
-    UPDATE riders
-    SET
-        average_rating = (
-            SELECT COALESCE(AVG(rating), 0)
-            FROM rider_reviews
-            WHERE rider_id = p_rider_id AND is_approved = TRUE
-        ),
-        total_ratings = (
-            SELECT COUNT(*)
-            FROM rider_reviews
-            WHERE rider_id = p_rider_id AND is_approved = TRUE
-        )
-    WHERE id = p_rider_id;
-END //
-
--- Procedure to get nearest branch using Haversine formula
-CREATE PROCEDURE get_nearest_branch(
-    IN p_latitude DECIMAL(10,8),
-    IN p_longitude DECIMAL(11,8),
-    OUT p_branch_id BIGINT,
-    OUT p_branch_name VARCHAR(150),
-    OUT p_distance_km DECIMAL(10,2),
-    OUT p_is_within_radius BOOLEAN
-)
-BEGIN
-    DECLARE v_delivery_radius DECIMAL(5,2);
-
-    SELECT
-        b.id,
-        b.branch_name,
-        b.delivery_radius_km,
-        (6371 * ACOS(
-            COS(RADIANS(p_latitude)) * COS(RADIANS(b.latitude)) *
-            COS(RADIANS(b.longitude) - RADIANS(p_longitude)) +
-            SIN(RADIANS(p_latitude)) * SIN(RADIANS(b.latitude))
-        )) AS distance
-    INTO p_branch_id, p_branch_name, v_delivery_radius, p_distance_km
-    FROM branches b
-    WHERE b.is_active = TRUE AND b.deleted_at IS NULL
-    ORDER BY distance ASC
-    LIMIT 1;
-
-    SET p_is_within_radius = (p_distance_km <= v_delivery_radius);
-END //
-
--- Procedure to cleanup old data
-CREATE PROCEDURE cleanup_old_data()
-BEGIN
-    -- Delete expired OTPs (older than 24 hours)
-    DELETE FROM otp_verifications WHERE expires_at < DATE_SUB(NOW(), INTERVAL 24 HOUR);
-
-    -- Delete expired password reset tokens
-    DELETE FROM password_reset_tokens WHERE expires_at < DATE_SUB(NOW(), INTERVAL 24 HOUR);
-
-    -- Delete old rate limit records (older than 1 hour)
-    DELETE FROM api_rate_limits WHERE window_start < DATE_SUB(NOW(), INTERVAL 1 HOUR);
-
-    -- Delete old notification logs (older than 90 days)
-    DELETE FROM notification_logs WHERE created_at < DATE_SUB(NOW(), INTERVAL 90 DAY);
-
-    -- Delete old rider location history (older than 30 days, except for orders)
-    DELETE FROM rider_location_history
-    WHERE recorded_at < DATE_SUB(NOW(), INTERVAL 30 DAY) AND order_id IS NULL;
-END //
-
-DELIMITER ;
-
--- ============================================================
--- 15. TRIGGERS
--- ============================================================
-
-DELIMITER //
-
--- Trigger to update food item rating after new review
-CREATE TRIGGER after_food_review_insert
-AFTER INSERT ON food_reviews
-FOR EACH ROW
-BEGIN
-    CALL update_food_item_rating(NEW.food_item_id);
-END //
-
--- Trigger to update food item rating after review update
-CREATE TRIGGER after_food_review_update
-AFTER UPDATE ON food_reviews
-FOR EACH ROW
-BEGIN
-    IF OLD.rating != NEW.rating OR OLD.is_approved != NEW.is_approved THEN
-        CALL update_food_item_rating(NEW.food_item_id);
-    END IF;
-END //
-
--- Trigger to update rider rating after new review
-CREATE TRIGGER after_rider_review_insert
-AFTER INSERT ON rider_reviews
-FOR EACH ROW
-BEGIN
-    CALL update_rider_rating(NEW.rider_id);
-END //
-
--- Trigger to update rider rating after review update
-CREATE TRIGGER after_rider_review_update
-AFTER UPDATE ON rider_reviews
-FOR EACH ROW
-BEGIN
-    IF OLD.rating != NEW.rating OR OLD.is_approved != NEW.is_approved THEN
-        CALL update_rider_rating(NEW.rider_id);
-    END IF;
-END //
-
--- Trigger to log order status changes
-CREATE TRIGGER after_order_status_update
-AFTER UPDATE ON orders
-FOR EACH ROW
-BEGIN
-    IF OLD.order_status != NEW.order_status THEN
-        INSERT INTO order_status_history (order_id, old_status, new_status, changed_by_type, changed_by_id)
-        VALUES (NEW.id, OLD.order_status, NEW.order_status, 'system', NULL);
-
-        -- Update timestamp based on new status
-        IF NEW.order_status = 'confirmed' AND OLD.confirmed_at IS NULL THEN
-            UPDATE orders SET confirmed_at = NOW() WHERE id = NEW.id;
-        ELSEIF NEW.order_status = 'processing' AND OLD.processing_started_at IS NULL THEN
-            UPDATE orders SET processing_started_at = NOW() WHERE id = NEW.id;
-        ELSEIF NEW.order_status = 'ready_for_pickup' AND OLD.ready_at IS NULL THEN
-            UPDATE orders SET ready_at = NOW() WHERE id = NEW.id;
-        ELSEIF NEW.order_status = 'picked_up' AND OLD.picked_up_at IS NULL THEN
-            UPDATE orders SET picked_up_at = NOW() WHERE id = NEW.id;
-        ELSEIF NEW.order_status = 'delivered' AND OLD.delivered_at IS NULL THEN
-            UPDATE orders SET delivered_at = NOW(), actual_delivery_time = NOW() WHERE id = NEW.id;
-        ELSEIF NEW.order_status = 'cancelled' AND OLD.cancelled_at IS NULL THEN
-            UPDATE orders SET cancelled_at = NOW() WHERE id = NEW.id;
-        END IF;
-    END IF;
-END //
-
--- Trigger to update rider daily earnings when order delivered
-CREATE TRIGGER after_order_delivered
-AFTER UPDATE ON orders
-FOR EACH ROW
-BEGIN
-    IF OLD.order_status != 'delivered' AND NEW.order_status = 'delivered' AND NEW.rider_id IS NOT NULL THEN
-        -- Update rider stats
-        UPDATE riders SET total_deliveries = total_deliveries + 1 WHERE id = NEW.rider_id;
-
-        -- Update daily earnings
-        INSERT INTO rider_daily_earnings (rider_id, earning_date, total_deliveries, total_tips_collected)
-        VALUES (NEW.rider_id, CURDATE(), 1, NEW.rider_tip)
-        ON DUPLICATE KEY UPDATE
-            total_deliveries = total_deliveries + 1,
-            total_tips_collected = total_tips_collected + NEW.rider_tip;
-
-        -- Update food item order counts
-        UPDATE food_items fi
-        INNER JOIN order_items oi ON fi.id = oi.food_item_id
-        SET fi.total_orders = fi.total_orders + oi.quantity
-        WHERE oi.order_id = NEW.id;
-    END IF;
-END //
-
--- Trigger to increment promo code usage
-CREATE TRIGGER after_promo_usage_insert
-AFTER INSERT ON promo_code_usage
-FOR EACH ROW
-BEGIN
-    UPDATE promo_codes SET times_used = times_used + 1 WHERE id = NEW.promo_code_id;
-END //
-
--- Trigger to auto-generate rider ID
-CREATE TRIGGER before_rider_insert
-BEFORE INSERT ON riders
-FOR EACH ROW
-BEGIN
-    IF NEW.rider_id IS NULL OR NEW.rider_id = '' THEN
-        SET NEW.rider_id = generate_rider_id();
-    END IF;
-END //
-
-DELIMITER ;
-
--- ============================================================
--- 16. VIEWS FOR REPORTING
--- ============================================================
-
--- View: Daily Order Summary
-CREATE VIEW vw_daily_order_summary AS
-SELECT
-    DATE(o.created_at) AS order_date,
-    o.branch_id,
-    b.branch_name,
-    COUNT(*) AS total_orders,
-    SUM(CASE WHEN o.order_status = 'delivered' THEN 1 ELSE 0 END) AS completed_orders,
-    SUM(CASE WHEN o.order_status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled_orders,
-    SUM(CASE WHEN o.order_status = 'delivered' THEN o.subtotal ELSE 0 END) AS total_food_sales,
-    SUM(CASE WHEN o.order_status = 'delivered' THEN o.service_fee ELSE 0 END) AS total_service_fees,
-    SUM(CASE WHEN o.order_status = 'delivered' THEN o.delivery_fee ELSE 0 END) AS total_delivery_fees,
-    SUM(CASE WHEN o.order_status = 'delivered' THEN o.discount_amount ELSE 0 END) AS total_discounts,
-    SUM(CASE WHEN o.order_status = 'delivered' THEN o.total_amount ELSE 0 END) AS total_revenue,
-    AVG(CASE WHEN o.order_status = 'delivered' THEN TIMESTAMPDIFF(MINUTE, o.created_at, o.delivered_at) END) AS avg_delivery_time_mins
-FROM orders o
-JOIN branches b ON o.branch_id = b.id
-GROUP BY DATE(o.created_at), o.branch_id, b.branch_name;
-
--- View: Rider Performance Summary
-CREATE VIEW vw_rider_performance AS
-SELECT
-    r.id AS rider_id,
-    r.rider_id AS rider_code,
-    r.full_name,
-    r.phone_number,
-    r.assigned_branch_id,
-    b.branch_name,
-    r.is_active,
-    r.is_available,
-    r.average_rating,
-    r.total_ratings,
-    r.total_deliveries,
-    COUNT(DISTINCT CASE WHEN o.order_status = 'delivered' THEN o.id END) AS successful_deliveries,
-    COUNT(DISTINCT CASE WHEN o.order_status = 'cancelled' AND o.rider_id = r.id THEN o.id END) AS cancelled_deliveries,
-    COALESCE(SUM(CASE WHEN o.order_status = 'delivered' THEN o.rider_tip END), 0) AS total_tips_earned,
-    AVG(CASE WHEN o.order_status = 'delivered' THEN TIMESTAMPDIFF(MINUTE, o.picked_up_at, o.delivered_at) END) AS avg_delivery_time_mins
-FROM riders r
-LEFT JOIN branches b ON r.assigned_branch_id = b.id
-LEFT JOIN orders o ON r.id = o.rider_id
-WHERE r.deleted_at IS NULL
-GROUP BY r.id, r.rider_id, r.full_name, r.phone_number, r.assigned_branch_id, b.branch_name, r.is_active, r.is_available, r.average_rating, r.total_ratings, r.total_deliveries;
-
--- View: Popular Food Items
-CREATE VIEW vw_popular_food_items AS
-SELECT
-    fi.id,
-    fi.item_name,
-    fi.item_slug,
-    fc.category_name,
-    fi.base_price,
-    fi.average_rating,
-    fi.total_ratings,
-    fi.total_orders,
-    COALESCE(SUM(oi.quantity), 0) AS total_quantity_sold,
-    COALESCE(SUM(oi.total_price), 0) AS total_revenue
-FROM food_items fi
-JOIN food_categories fc ON fi.category_id = fc.id
-LEFT JOIN order_items oi ON fi.id = oi.food_item_id
-LEFT JOIN orders o ON oi.order_id = o.id AND o.order_status = 'delivered'
-WHERE fi.deleted_at IS NULL AND fi.is_active = TRUE
-GROUP BY fi.id, fi.item_name, fi.item_slug, fc.category_name, fi.base_price, fi.average_rating, fi.total_ratings, fi.total_orders
-ORDER BY fi.total_orders DESC;
-
--- View: Pending Orders Dashboard
-CREATE VIEW vw_pending_orders AS
-SELECT
-    o.id,
-    o.order_number,
-    o.order_status,
-    o.payment_method,
-    o.payment_status,
-    o.total_amount,
-    o.created_at,
-    o.admin_reminder_count,
-    TIMESTAMPDIFF(MINUTE, o.created_at, NOW()) AS minutes_since_order,
-    u.id AS customer_id,
-    CONCAT(u.first_name, ' ', u.last_name) AS customer_name,
-    u.phone_number AS customer_phone,
-    b.id AS branch_id,
-    b.branch_name,
-    r.id AS rider_id,
-    r.full_name AS rider_name,
-    r.phone_number AS rider_phone
-FROM orders o
-JOIN users u ON o.user_id = u.id
-JOIN branches b ON o.branch_id = b.id
-LEFT JOIN riders r ON o.rider_id = r.id
-WHERE o.order_status IN ('pending', 'confirmed', 'processing', 'ready_for_pickup')
-ORDER BY
-    CASE o.order_status
-        WHEN 'pending' THEN 1
-        WHEN 'confirmed' THEN 2
-        WHEN 'processing' THEN 3
-        WHEN 'ready_for_pickup' THEN 4
-    END,
-    o.created_at ASC;
-
--- View: Branch Performance
-CREATE VIEW vw_branch_performance AS
-SELECT
-    b.id AS branch_id,
-    b.branch_name,
-    b.branch_code,
-    b.city,
-    b.is_active,
-    COUNT(DISTINCT o.id) AS total_orders,
-    COUNT(DISTINCT CASE WHEN o.order_status = 'delivered' THEN o.id END) AS completed_orders,
-    COUNT(DISTINCT CASE WHEN o.order_status = 'cancelled' THEN o.id END) AS cancelled_orders,
-    COALESCE(SUM(CASE WHEN o.order_status = 'delivered' THEN o.total_amount END), 0) AS total_revenue,
-    COALESCE(AVG(CASE WHEN o.order_status = 'delivered' THEN TIMESTAMPDIFF(MINUTE, o.created_at, o.delivered_at) END), 0) AS avg_delivery_time_mins,
-    COUNT(DISTINCT r.id) AS total_riders
-FROM branches b
-LEFT JOIN orders o ON b.id = o.branch_id
-LEFT JOIN riders r ON b.id = r.assigned_branch_id AND r.deleted_at IS NULL
-WHERE b.deleted_at IS NULL
-GROUP BY b.id, b.branch_name, b.branch_code, b.city, b.is_active;
-
--- View: Customer Order History
-CREATE VIEW vw_customer_orders AS
-SELECT
-    o.id AS order_id,
-    o.order_number,
-    o.user_id,
-    CONCAT(u.first_name, ' ', u.last_name) AS customer_name,
-    u.phone_number,
-    o.order_status,
-    o.payment_method,
-    o.payment_status,
-    o.subtotal,
-    o.service_fee,
-    o.delivery_fee,
-    o.discount_amount,
-    o.rider_tip,
-    o.total_amount,
-    b.branch_name,
-    o.created_at,
-    o.delivered_at,
-    TIMESTAMPDIFF(MINUTE, o.created_at, o.delivered_at) AS delivery_time_mins
-FROM orders o
-JOIN users u ON o.user_id = u.id
-JOIN branches b ON o.branch_id = b.id
-ORDER BY o.created_at DESC;
-
--- ============================================================
--- 17. SCHEDULED EVENTS (Optional - Enable event_scheduler)
--- ============================================================
-
--- Enable event scheduler (run as admin): SET GLOBAL event_scheduler = ON;
-
-DELIMITER //
-
--- Event: Cleanup old data daily at 3 AM
-CREATE EVENT IF NOT EXISTS evt_daily_cleanup
-ON SCHEDULE EVERY 1 DAY
-STARTS CONCAT(CURDATE() + INTERVAL 1 DAY, ' 03:00:00')
-DO
-BEGIN
-    CALL cleanup_old_data();
-END //
-
--- Event: Auto-expire pending orders after 30 minutes
-CREATE EVENT IF NOT EXISTS evt_expire_pending_orders
-ON SCHEDULE EVERY 5 MINUTE
-DO
-BEGIN
-    UPDATE orders
-    SET order_status = 'cancelled',
-        cancelled_at = NOW(),
-        cancelled_by_type = 'system',
-        cancellation_reason = 'Order automatically cancelled - no confirmation received'
-    WHERE order_status = 'pending'
-    AND created_at < DATE_SUB(NOW(), INTERVAL 30 MINUTE);
-END //
-
-DELIMITER ;
-
--- ============================================================
--- END OF OPTIMIZED SCHEMA
--- ============================================================
-
--- ============================================================
--- SCHEMA SUMMARY
--- ============================================================
 --
--- Tables Created: 32
--- Views Created: 6
--- Stored Procedures: 7
--- Functions: 3
--- Triggers: 9
--- Events: 2
+-- Table structure for table `admin_activity_logs`
 --
--- Key Features:
--- ✅ Combined users/admins architecture (cleaner auth)
--- ✅ Soft delete on all critical tables
--- ✅ JSON address snapshots for order history
--- ✅ Laravel Sanctum compatible tokens
--- ✅ URL-friendly slugs for SEO
--- ✅ Many-to-many offer mappings
--- ✅ Separate promo codes system
--- ✅ User wishlist functionality
--- ✅ Full-text search on food items
--- ✅ Cached ratings for performance
--- ✅ Per-day branch operating hours
--- ✅ OTP attempt tracking
--- ✅ Complete order timestamps
--- ✅ Rider assignment history
--- ✅ API rate limiting
--- ✅ Password reset tokens
--- ✅ Admin activity logging
--- ✅ Haversine formula for distance
--- ✅ CHECK constraints for data integrity
--- ✅ Composite indexes for common queries
--- ✅ Automatic cleanup events
--- ✅ Comprehensive reporting views
--- ============================================================
 
-SELECT 'Optimized database schema created successfully!' AS status;
+DROP TABLE IF EXISTS `admin_activity_logs`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `admin_activity_logs` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `admin_user_id` bigint unsigned NOT NULL,
+  `action` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `entity_type` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'order, menu_item, rider, etc.',
+  `entity_id` bigint unsigned DEFAULT NULL,
+  `old_values` json DEFAULT NULL,
+  `new_values` json DEFAULT NULL,
+  `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_agent` text COLLATE utf8mb4_unicode_ci,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_admin` (`admin_user_id`),
+  KEY `idx_action` (`action`),
+  KEY `idx_entity` (`entity_type`,`entity_id`),
+  KEY `idx_created` (`created_at`),
+  CONSTRAINT `admin_activity_logs_ibfk_1` FOREIGN KEY (`admin_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `admin_roles`
+--
+
+DROP TABLE IF EXISTS `admin_roles`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `admin_roles` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `role_name` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `permissions` json NOT NULL COMMENT 'JSON array of permission keys',
+  `is_active` tinyint(1) DEFAULT '1',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `role_name` (`role_name`),
+  KEY `idx_active` (`is_active`)
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `api_rate_limits`
+--
+
+DROP TABLE IF EXISTS `api_rate_limits`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `api_rate_limits` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `endpoint` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `request_count` int DEFAULT '1',
+  `window_start` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `last_request_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_ip_endpoint` (`ip_address`,`endpoint`),
+  KEY `idx_window` (`window_start`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `branch_variation_availability`
+--
+
+DROP TABLE IF EXISTS `branch_variation_availability`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `branch_variation_availability` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `branch_id` bigint unsigned NOT NULL,
+  `variation_id` bigint unsigned NOT NULL,
+  `is_available` tinyint(1) NOT NULL DEFAULT '1',
+  `branch_price` decimal(10,2) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `unique_branch_variation` (`branch_id`,`variation_id`),
+  KEY `branch_variation_availability_variation_id_foreign` (`variation_id`),
+  CONSTRAINT `branch_variation_availability_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `branch_variation_availability_variation_id_foreign` FOREIGN KEY (`variation_id`) REFERENCES `item_variations` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `branches`
+--
+
+DROP TABLE IF EXISTS `branches`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `branches` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `branch_name` varchar(150) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `branch_code` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `branch_slug` varchar(150) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'URL-friendly slug',
+  `address` varchar(500) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `city` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `district` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `latitude` decimal(10,8) NOT NULL,
+  `longitude` decimal(11,8) NOT NULL,
+  `delivery_radius_km` decimal(5,2) NOT NULL DEFAULT '10.00' COMMENT 'Delivery radius in kilometers',
+  `contact_number` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `email` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `opening_time` time NOT NULL DEFAULT '08:00:00',
+  `closing_time` time NOT NULL DEFAULT '22:00:00',
+  `is_open_sunday` tinyint(1) DEFAULT '1',
+  `is_open_monday` tinyint(1) DEFAULT '1',
+  `is_open_tuesday` tinyint(1) DEFAULT '1',
+  `is_open_wednesday` tinyint(1) DEFAULT '1',
+  `is_open_thursday` tinyint(1) DEFAULT '1',
+  `is_open_friday` tinyint(1) DEFAULT '1',
+  `is_open_saturday` tinyint(1) DEFAULT '1',
+  `is_active` tinyint(1) DEFAULT '1',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `branch_code` (`branch_code`),
+  UNIQUE KEY `branch_slug` (`branch_slug`),
+  KEY `idx_location` (`latitude`,`longitude`),
+  KEY `idx_active` (`is_active`),
+  KEY `idx_city` (`city`),
+  KEY `idx_deleted` (`deleted_at`),
+  CONSTRAINT `chk_opening_hours` CHECK ((`opening_time` < `closing_time`))
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `cart_items`
+--
+
+DROP TABLE IF EXISTS `cart_items`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `cart_items` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `cart_id` bigint unsigned NOT NULL,
+  `food_item_id` bigint unsigned NOT NULL,
+  `variation_id` bigint unsigned DEFAULT NULL,
+  `quantity` int NOT NULL DEFAULT '1',
+  `unit_price` decimal(10,2) NOT NULL,
+  `special_instructions` text COLLATE utf8mb4_unicode_ci,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_cart_item` (`cart_id`,`food_item_id`,`variation_id`),
+  KEY `food_item_id` (`food_item_id`),
+  KEY `variation_id` (`variation_id`),
+  KEY `idx_cart` (`cart_id`),
+  CONSTRAINT `cart_items_cart_id_foreign` FOREIGN KEY (`cart_id`) REFERENCES `carts` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `cart_items_ibfk_2` FOREIGN KEY (`food_item_id`) REFERENCES `food_items` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `cart_items_ibfk_3` FOREIGN KEY (`variation_id`) REFERENCES `item_variations` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `chk_quantity` CHECK ((`quantity` > 0))
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `carts`
+--
+
+DROP TABLE IF EXISTS `carts`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `carts` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint unsigned NOT NULL,
+  `branch_id` bigint unsigned DEFAULT NULL,
+  `session_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `subtotal` decimal(10,2) NOT NULL DEFAULT '0.00',
+  `delivery_fee` decimal(10,2) NOT NULL DEFAULT '0.00',
+  `tax_amount` decimal(10,2) NOT NULL DEFAULT '0.00',
+  `discount_amount` decimal(10,2) NOT NULL DEFAULT '0.00',
+  `promo_code_id` bigint unsigned DEFAULT NULL,
+  `total` decimal(10,2) NOT NULL DEFAULT '0.00',
+  `expires_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `carts_user_id_unique` (`user_id`),
+  KEY `carts_branch_id_foreign` (`branch_id`),
+  KEY `carts_promo_code_id_foreign` (`promo_code_id`),
+  CONSTRAINT `carts_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `carts_promo_code_id_foreign` FOREIGN KEY (`promo_code_id`) REFERENCES `promo_codes` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `carts_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `customer_addresses`
+--
+
+DROP TABLE IF EXISTS `customer_addresses`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `customer_addresses` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint unsigned NOT NULL,
+  `address_label` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Home, Office, etc.',
+  `recipient_name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `phone_number` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `address_line1` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `address_line2` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `city` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `district` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `postal_code` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `latitude` decimal(10,8) DEFAULT NULL,
+  `longitude` decimal(11,8) DEFAULT NULL,
+  `is_default` tinyint(1) DEFAULT '0',
+  `delivery_instructions` text COLLATE utf8mb4_unicode_ci,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_user` (`user_id`),
+  KEY `idx_default` (`user_id`,`is_default`),
+  KEY `idx_location` (`latitude`,`longitude`),
+  KEY `idx_deleted` (`deleted_at`),
+  CONSTRAINT `customer_addresses_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `food_categories`
+--
+
+DROP TABLE IF EXISTS `food_categories`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `food_categories` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `category_name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `category_slug` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'URL-friendly slug',
+  `description` text COLLATE utf8mb4_unicode_ci,
+  `image` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `display_order` int DEFAULT '0',
+  `is_active` tinyint(1) DEFAULT '1',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `category_slug` (`category_slug`),
+  KEY `idx_active_order` (`is_active`,`display_order`),
+  KEY `idx_slug` (`category_slug`),
+  KEY `idx_deleted` (`deleted_at`)
+) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `food_items`
+--
+
+DROP TABLE IF EXISTS `food_items`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `food_items` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `category_id` int unsigned NOT NULL,
+  `item_name` varchar(200) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `item_slug` varchar(200) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'URL-friendly slug',
+  `description` text COLLATE utf8mb4_unicode_ci,
+  `ingredients` text COLLATE utf8mb4_unicode_ci COMMENT 'List of ingredients',
+  `image` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `has_variations` tinyint(1) DEFAULT '0',
+  `is_vegetarian` tinyint(1) DEFAULT '0',
+  `is_vegan` tinyint(1) DEFAULT '0',
+  `is_spicy` tinyint(1) DEFAULT '0',
+  `spicy_level` tinyint DEFAULT '0' COMMENT '0-5 spicy scale',
+  `preparation_time_minutes` int DEFAULT '20',
+  `display_order` int DEFAULT '0',
+  `is_available` tinyint(1) DEFAULT '1',
+  `is_featured` tinyint(1) NOT NULL DEFAULT '0',
+  `is_active` tinyint(1) DEFAULT '1',
+  `average_rating` decimal(3,2) DEFAULT '0.00',
+  `total_ratings` int DEFAULT '0',
+  `total_orders` int DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `item_slug` (`item_slug`),
+  KEY `idx_category` (`category_id`),
+  KEY `idx_slug` (`item_slug`),
+  KEY `idx_active` (`is_active`,`is_available`),
+  KEY `idx_rating` (`average_rating` DESC),
+  KEY `idx_popular` (`total_orders` DESC),
+  KEY `idx_deleted` (`deleted_at`),
+  FULLTEXT KEY `ft_search` (`item_name`,`description`,`ingredients`),
+  CONSTRAINT `food_items_ibfk_1` FOREIGN KEY (`category_id`) REFERENCES `food_categories` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `chk_spicy_level` CHECK (((`spicy_level` >= 0) and (`spicy_level` <= 5)))
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `food_reviews`
+--
+
+DROP TABLE IF EXISTS `food_reviews`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `food_reviews` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `order_id` bigint unsigned NOT NULL,
+  `order_item_id` bigint unsigned NOT NULL,
+  `user_id` bigint unsigned NOT NULL,
+  `food_item_id` bigint unsigned NOT NULL,
+  `rating` tinyint NOT NULL,
+  `review_text` text COLLATE utf8mb4_unicode_ci,
+  `is_approved` tinyint(1) DEFAULT '1',
+  `admin_response` text COLLATE utf8mb4_unicode_ci,
+  `responded_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_order_item_review` (`order_item_id`),
+  KEY `order_id` (`order_id`),
+  KEY `user_id` (`user_id`),
+  KEY `idx_food_item` (`food_item_id`),
+  KEY `idx_rating` (`rating`),
+  KEY `idx_approved` (`is_approved`),
+  CONSTRAINT `food_reviews_ibfk_1` FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `food_reviews_ibfk_2` FOREIGN KEY (`order_item_id`) REFERENCES `order_items` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `food_reviews_ibfk_3` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `food_reviews_ibfk_4` FOREIGN KEY (`food_item_id`) REFERENCES `food_items` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `chk_food_rating` CHECK (((`rating` >= 1) and (`rating` <= 5)))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `item_variations`
+--
+
+DROP TABLE IF EXISTS `item_variations`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `item_variations` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `food_item_id` bigint unsigned NOT NULL,
+  `variation_name` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Small, Medium, Large, etc.',
+  `price` decimal(10,2) NOT NULL,
+  `is_default` tinyint(1) DEFAULT '0',
+  `is_available` tinyint(1) DEFAULT '1',
+  `display_order` int DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_item_variation` (`food_item_id`,`variation_name`),
+  KEY `idx_item` (`food_item_id`),
+  KEY `idx_available` (`is_available`),
+  CONSTRAINT `item_variations_ibfk_1` FOREIGN KEY (`food_item_id`) REFERENCES `food_items` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `migrations`
+--
+
+DROP TABLE IF EXISTS `migrations`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `migrations` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `migration` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `batch` int NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=18 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `notification_logs`
+--
+
+DROP TABLE IF EXISTS `notification_logs`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `notification_logs` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `notification_type` enum('sms','email','push','in_app') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `recipient_type` enum('customer','rider','admin') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `recipient_id` bigint unsigned NOT NULL,
+  `recipient_contact` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Phone/Email/Device ID',
+  `title` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `message` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `data` json DEFAULT NULL COMMENT 'Additional payload',
+  `status` enum('pending','sent','failed','read') COLLATE utf8mb4_unicode_ci DEFAULT 'pending',
+  `failure_reason` text COLLATE utf8mb4_unicode_ci,
+  `related_order_id` bigint unsigned DEFAULT NULL,
+  `sent_at` timestamp NULL DEFAULT NULL,
+  `read_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_recipient` (`recipient_type`,`recipient_id`),
+  KEY `idx_status` (`status`),
+  KEY `idx_order` (`related_order_id`),
+  KEY `idx_created` (`created_at`),
+  KEY `idx_unread` (`recipient_type`,`recipient_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `offer_categories`
+--
+
+DROP TABLE IF EXISTS `offer_categories`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `offer_categories` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `offer_id` bigint unsigned NOT NULL,
+  `category_id` int unsigned NOT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_offer_category` (`offer_id`,`category_id`),
+  KEY `category_id` (`category_id`),
+  CONSTRAINT `offer_categories_ibfk_1` FOREIGN KEY (`offer_id`) REFERENCES `offers` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `offer_categories_ibfk_2` FOREIGN KEY (`category_id`) REFERENCES `food_categories` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `offer_items`
+--
+
+DROP TABLE IF EXISTS `offer_items`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `offer_items` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `offer_id` bigint unsigned NOT NULL,
+  `food_item_id` bigint unsigned NOT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_offer_item` (`offer_id`,`food_item_id`),
+  KEY `food_item_id` (`food_item_id`),
+  CONSTRAINT `offer_items_ibfk_1` FOREIGN KEY (`offer_id`) REFERENCES `offers` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `offer_items_ibfk_2` FOREIGN KEY (`food_item_id`) REFERENCES `food_items` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `offers`
+--
+
+DROP TABLE IF EXISTS `offers`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `offers` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `offer_name` varchar(150) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `offer_slug` varchar(150) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci,
+  `discount_type` enum('percentage','fixed_amount') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `discount_value` decimal(10,2) NOT NULL,
+  `minimum_order_amount` decimal(10,2) DEFAULT '0.00',
+  `maximum_discount_amount` decimal(10,2) DEFAULT NULL COMMENT 'Cap for percentage discounts',
+  `applicable_to` enum('all_items','specific_items','specific_categories') COLLATE utf8mb4_unicode_ci DEFAULT 'all_items',
+  `branch_id` bigint unsigned DEFAULT NULL COMMENT 'NULL = all branches',
+  `start_date` datetime NOT NULL,
+  `end_date` datetime NOT NULL,
+  `usage_limit` int DEFAULT NULL COMMENT 'Total times offer can be used',
+  `times_used` int DEFAULT '0',
+  `image` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `is_featured` tinyint(1) DEFAULT '0',
+  `is_active` tinyint(1) DEFAULT '1',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `offer_slug` (`offer_slug`),
+  KEY `idx_active_dates` (`is_active`,`start_date`,`end_date`),
+  KEY `idx_slug` (`offer_slug`),
+  KEY `idx_branch` (`branch_id`),
+  KEY `idx_featured` (`is_featured`,`is_active`),
+  KEY `idx_deleted` (`deleted_at`),
+  CONSTRAINT `offers_ibfk_1` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `chk_offer_dates` CHECK ((`start_date` < `end_date`)),
+  CONSTRAINT `chk_offer_percentage` CHECK (((`discount_type` <> _utf8mb4'percentage') or (`discount_value` <= 100)))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `order_items`
+--
+
+DROP TABLE IF EXISTS `order_items`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `order_items` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `order_id` bigint unsigned NOT NULL,
+  `food_item_id` bigint unsigned NOT NULL,
+  `variation_id` bigint unsigned DEFAULT NULL,
+  `item_name` varchar(200) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `variation_name` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `unit_price` decimal(10,2) NOT NULL,
+  `quantity` int NOT NULL DEFAULT '1',
+  `total_price` decimal(10,2) NOT NULL,
+  `special_instructions` text COLLATE utf8mb4_unicode_ci,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `variation_id` (`variation_id`),
+  KEY `idx_order` (`order_id`),
+  KEY `idx_item` (`food_item_id`),
+  CONSTRAINT `order_items_ibfk_1` FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `order_items_ibfk_2` FOREIGN KEY (`food_item_id`) REFERENCES `food_items` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `order_items_ibfk_3` FOREIGN KEY (`variation_id`) REFERENCES `item_variations` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `chk_item_quantity` CHECK ((`quantity` > 0))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `order_rider_assignments`
+--
+
+DROP TABLE IF EXISTS `order_rider_assignments`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `order_rider_assignments` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `order_id` bigint unsigned NOT NULL,
+  `rider_id` bigint unsigned NOT NULL,
+  `assigned_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `assigned_by_type` enum('system','admin') COLLATE utf8mb4_unicode_ci DEFAULT 'system',
+  `assigned_by_id` bigint unsigned DEFAULT NULL COMMENT 'Admin ID if manual',
+  `unassigned_at` timestamp NULL DEFAULT NULL,
+  `unassignment_reason` text COLLATE utf8mb4_unicode_ci,
+  PRIMARY KEY (`id`),
+  KEY `idx_order` (`order_id`),
+  KEY `idx_rider` (`rider_id`),
+  KEY `idx_assigned` (`assigned_at`),
+  CONSTRAINT `order_rider_assignments_ibfk_1` FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `order_rider_assignments_ibfk_2` FOREIGN KEY (`rider_id`) REFERENCES `riders` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `order_status_history`
+--
+
+DROP TABLE IF EXISTS `order_status_history`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `order_status_history` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `order_id` bigint unsigned NOT NULL,
+  `old_status` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `new_status` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `changed_by_type` enum('customer','admin','rider','system') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `changed_by_id` bigint unsigned DEFAULT NULL,
+  `notes` text COLLATE utf8mb4_unicode_ci,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_order` (`order_id`),
+  KEY `idx_created` (`created_at`),
+  CONSTRAINT `order_status_history_ibfk_1` FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `orders`
+--
+
+DROP TABLE IF EXISTS `orders`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `orders` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `order_number` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `user_id` bigint unsigned NOT NULL,
+  `branch_id` bigint unsigned NOT NULL,
+  `rider_id` bigint unsigned DEFAULT NULL,
+  `delivery_address_id` bigint unsigned DEFAULT NULL,
+  `delivery_address_snapshot` json NOT NULL,
+  `order_status` enum('pending','confirmed','processing','ready_for_pickup','picked_up','delivering','delivered','cancelled') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `verification_code` varchar(4) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '4-digit code',
+  `is_verified` tinyint(1) DEFAULT '0',
+  `verified_at` timestamp NULL DEFAULT NULL,
+  `payment_method` enum('online','cash_on_delivery') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `payment_status` enum('pending','processing','completed','failed','refunded') COLLATE utf8mb4_unicode_ci DEFAULT 'pending',
+  `payment_gateway_reference` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `subtotal` decimal(10,2) NOT NULL COMMENT 'Food items total',
+  `service_fee` decimal(10,2) NOT NULL DEFAULT '0.00',
+  `service_fee_percentage` decimal(5,2) NOT NULL COMMENT 'Fee % at order time',
+  `delivery_fee` decimal(10,2) NOT NULL DEFAULT '0.00',
+  `delivery_distance_km` decimal(5,2) NOT NULL,
+  `delivery_rate_per_km` decimal(10,2) NOT NULL COMMENT 'Rate at order time',
+  `rider_tip` decimal(10,2) DEFAULT '0.00',
+  `discount_amount` decimal(10,2) DEFAULT '0.00',
+  `offer_id` bigint unsigned DEFAULT NULL,
+  `promo_code_id` bigint unsigned DEFAULT NULL,
+  `total_amount` decimal(10,2) NOT NULL,
+  `confirmed_at` timestamp NULL DEFAULT NULL,
+  `processing_started_at` timestamp NULL DEFAULT NULL,
+  `ready_at` timestamp NULL DEFAULT NULL,
+  `picked_up_at` timestamp NULL DEFAULT NULL,
+  `delivered_at` timestamp NULL DEFAULT NULL,
+  `cancelled_at` timestamp NULL DEFAULT NULL,
+  `cancelled_by_type` enum('customer','admin','rider','system') COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `cancelled_by_id` bigint unsigned DEFAULT NULL,
+  `cancellation_reason` text COLLATE utf8mb4_unicode_ci,
+  `customer_notes` text COLLATE utf8mb4_unicode_ci,
+  `admin_notes` text COLLATE utf8mb4_unicode_ci,
+  `estimated_delivery_time` datetime DEFAULT NULL,
+  `actual_delivery_time` datetime DEFAULT NULL,
+  `admin_reminder_count` int DEFAULT '0',
+  `last_reminder_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `order_number` (`order_number`),
+  KEY `delivery_address_id` (`delivery_address_id`),
+  KEY `offer_id` (`offer_id`),
+  KEY `promo_code_id` (`promo_code_id`),
+  KEY `idx_order_number` (`order_number`),
+  KEY `idx_user` (`user_id`),
+  KEY `idx_branch` (`branch_id`),
+  KEY `idx_rider` (`rider_id`),
+  KEY `idx_status` (`order_status`),
+  KEY `idx_payment_status` (`payment_status`),
+  KEY `idx_created` (`created_at`),
+  KEY `idx_status_created` (`order_status`,`created_at`),
+  KEY `idx_user_status` (`user_id`,`order_status`),
+  KEY `idx_branch_status` (`branch_id`,`order_status`),
+  KEY `idx_pending` (`order_status`,`created_at`) COMMENT 'For dashboard pending orders',
+  CONSTRAINT `orders_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `orders_ibfk_2` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `orders_ibfk_3` FOREIGN KEY (`rider_id`) REFERENCES `riders` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `orders_ibfk_4` FOREIGN KEY (`delivery_address_id`) REFERENCES `customer_addresses` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `orders_ibfk_5` FOREIGN KEY (`offer_id`) REFERENCES `offers` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `orders_ibfk_6` FOREIGN KEY (`promo_code_id`) REFERENCES `promo_codes` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `otp_verifications`
+--
+
+DROP TABLE IF EXISTS `otp_verifications`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `otp_verifications` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `phone_number` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `otp_code` varchar(6) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `purpose` enum('registration','login','password_reset','phone_change') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `is_verified` tinyint(1) DEFAULT '0',
+  `attempts` int DEFAULT '0' COMMENT 'Failed verification attempts',
+  `max_attempts` int DEFAULT '3',
+  `expires_at` timestamp NOT NULL,
+  `verified_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_phone_otp` (`phone_number`,`otp_code`),
+  KEY `idx_expires` (`expires_at`),
+  KEY `idx_purpose` (`purpose`)
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `payment_transactions`
+--
+
+DROP TABLE IF EXISTS `payment_transactions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `payment_transactions` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `order_id` bigint unsigned NOT NULL,
+  `transaction_type` enum('payment','refund') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `payment_method` enum('online','cash_on_delivery') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `gateway_name` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'PayHere, Stripe, etc.',
+  `gateway_transaction_id` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `gateway_response` json DEFAULT NULL,
+  `amount` decimal(10,2) NOT NULL,
+  `currency` varchar(3) COLLATE utf8mb4_unicode_ci DEFAULT 'LKR',
+  `status` enum('pending','processing','completed','failed','refunded') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `failure_reason` text COLLATE utf8mb4_unicode_ci,
+  `completed_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_order` (`order_id`),
+  KEY `idx_gateway_txn` (`gateway_transaction_id`),
+  KEY `idx_status` (`status`),
+  CONSTRAINT `payment_transactions_ibfk_1` FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `personal_access_tokens`
+--
+
+DROP TABLE IF EXISTS `personal_access_tokens`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `personal_access_tokens` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `tokenable_type` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `tokenable_id` bigint unsigned NOT NULL,
+  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `token` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `abilities` text COLLATE utf8mb4_unicode_ci,
+  `last_used_at` timestamp NULL DEFAULT NULL,
+  `expires_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `token` (`token`),
+  KEY `idx_tokenable` (`tokenable_type`,`tokenable_id`),
+  KEY `idx_token` (`token`)
+) ENGINE=InnoDB AUTO_INCREMENT=17 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `promo_code_usage`
+--
+
+DROP TABLE IF EXISTS `promo_code_usage`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `promo_code_usage` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `promo_code_id` bigint unsigned NOT NULL,
+  `user_id` bigint unsigned NOT NULL,
+  `order_id` bigint unsigned NOT NULL,
+  `discount_amount` decimal(10,2) NOT NULL,
+  `used_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_user` (`user_id`),
+  KEY `idx_promo` (`promo_code_id`),
+  KEY `idx_user_promo` (`user_id`,`promo_code_id`),
+  KEY `fk_promo_usage_order` (`order_id`),
+  CONSTRAINT `fk_promo_usage_order` FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `promo_code_usage_ibfk_1` FOREIGN KEY (`promo_code_id`) REFERENCES `promo_codes` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `promo_code_usage_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `promo_codes`
+--
+
+DROP TABLE IF EXISTS `promo_codes`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `promo_codes` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `code` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci,
+  `discount_type` enum('percentage','fixed_amount') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `discount_value` decimal(10,2) NOT NULL,
+  `min_order_amount` decimal(10,2) DEFAULT NULL COMMENT 'Minimum order amount to apply',
+  `max_discount_amount` decimal(10,2) DEFAULT NULL COMMENT 'Cap for percentage discounts',
+  `usage_limit` int DEFAULT NULL COMMENT 'Total times code can be used',
+  `usage_limit_per_user` int DEFAULT '1' COMMENT 'Per user limit',
+  `times_used` int DEFAULT '0',
+  `valid_from` datetime NOT NULL,
+  `valid_until` datetime NOT NULL,
+  `is_active` tinyint(1) DEFAULT '1',
+  `created_by` bigint unsigned DEFAULT NULL COMMENT 'Admin who created',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `code` (`code`),
+  KEY `created_by` (`created_by`),
+  KEY `idx_code` (`code`),
+  KEY `idx_active` (`is_active`),
+  KEY `idx_dates` (`valid_from`,`valid_until`,`is_active`),
+  KEY `idx_deleted` (`deleted_at`),
+  CONSTRAINT `promo_codes_ibfk_1` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `chk_promo_dates` CHECK ((`valid_from` < `valid_until`)),
+  CONSTRAINT `chk_promo_percentage` CHECK (((`discount_type` <> _utf8mb4'percentage') or (`discount_value` <= 100)))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `rider_daily_earnings`
+--
+
+DROP TABLE IF EXISTS `rider_daily_earnings`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rider_daily_earnings` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `rider_id` bigint unsigned NOT NULL,
+  `earning_date` date NOT NULL,
+  `total_deliveries` int DEFAULT '0',
+  `total_tips_collected` decimal(10,2) DEFAULT '0.00',
+  `total_cash_collected` decimal(10,2) DEFAULT '0.00' COMMENT 'Cash from COD orders',
+  `cash_submitted` decimal(10,2) DEFAULT '0.00' COMMENT 'Handed over to company',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_rider_date` (`rider_id`,`earning_date`),
+  KEY `idx_date` (`earning_date`),
+  CONSTRAINT `rider_daily_earnings_ibfk_1` FOREIGN KEY (`rider_id`) REFERENCES `riders` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `rider_location_history`
+--
+
+DROP TABLE IF EXISTS `rider_location_history`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rider_location_history` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `rider_id` bigint unsigned NOT NULL,
+  `order_id` bigint unsigned DEFAULT NULL COMMENT 'If tracking during delivery',
+  `latitude` decimal(10,8) NOT NULL,
+  `longitude` decimal(11,8) NOT NULL,
+  `speed` decimal(5,2) DEFAULT NULL COMMENT 'km/h',
+  `heading` decimal(5,2) DEFAULT NULL COMMENT 'Direction in degrees',
+  `recorded_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_rider_time` (`rider_id`,`recorded_at`),
+  KEY `idx_order` (`order_id`),
+  CONSTRAINT `rider_location_history_ibfk_1` FOREIGN KEY (`rider_id`) REFERENCES `riders` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rider_location_history_ibfk_2` FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `rider_order_notifications`
+--
+
+DROP TABLE IF EXISTS `rider_order_notifications`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rider_order_notifications` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `order_id` bigint unsigned NOT NULL,
+  `rider_id` bigint unsigned NOT NULL,
+  `notification_sent_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `response` enum('pending','accepted','declined','expired') COLLATE utf8mb4_unicode_ci DEFAULT 'pending',
+  `responded_at` timestamp NULL DEFAULT NULL,
+  `decline_reason` text COLLATE utf8mb4_unicode_ci,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_order_rider` (`order_id`,`rider_id`),
+  KEY `idx_rider_pending` (`rider_id`,`response`),
+  CONSTRAINT `rider_order_notifications_ibfk_1` FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rider_order_notifications_ibfk_2` FOREIGN KEY (`rider_id`) REFERENCES `riders` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `rider_reviews`
+--
+
+DROP TABLE IF EXISTS `rider_reviews`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rider_reviews` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `order_id` bigint unsigned NOT NULL,
+  `user_id` bigint unsigned NOT NULL,
+  `rider_id` bigint unsigned NOT NULL,
+  `rating` tinyint NOT NULL,
+  `review_text` text COLLATE utf8mb4_unicode_ci,
+  `is_approved` tinyint(1) DEFAULT '1',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_order_rider_review` (`order_id`),
+  KEY `user_id` (`user_id`),
+  KEY `idx_rider` (`rider_id`),
+  KEY `idx_rating` (`rating`),
+  CONSTRAINT `rider_reviews_ibfk_1` FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rider_reviews_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rider_reviews_ibfk_3` FOREIGN KEY (`rider_id`) REFERENCES `riders` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `chk_rider_rating` CHECK (((`rating` >= 1) and (`rating` <= 5)))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `riders`
+--
+
+DROP TABLE IF EXISTS `riders`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `riders` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `rider_id` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'System generated ID like RDR000001',
+  `full_name` varchar(150) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `phone_number` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `password` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `email` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `profile_image` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `vehicle_type` enum('bicycle','motorcycle','scooter','car') COLLATE utf8mb4_unicode_ci DEFAULT 'motorcycle',
+  `vehicle_number` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `license_number` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `is_active` tinyint(1) DEFAULT '1',
+  `is_available` tinyint(1) DEFAULT '0' COMMENT 'Currently available for deliveries',
+  `is_online` tinyint(1) DEFAULT '0' COMMENT 'App online status',
+  `current_latitude` decimal(10,8) DEFAULT NULL,
+  `current_longitude` decimal(11,8) DEFAULT NULL,
+  `last_location_update` timestamp NULL DEFAULT NULL,
+  `assigned_branch_id` bigint unsigned DEFAULT NULL,
+  `average_rating` decimal(3,2) DEFAULT '0.00',
+  `total_ratings` int DEFAULT '0',
+  `total_deliveries` int DEFAULT '0',
+  `last_login_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rider_id` (`rider_id`),
+  UNIQUE KEY `phone_number` (`phone_number`),
+  KEY `idx_rider_id` (`rider_id`),
+  KEY `idx_phone` (`phone_number`),
+  KEY `idx_availability` (`is_active`,`is_available`,`is_online`),
+  KEY `idx_location` (`current_latitude`,`current_longitude`),
+  KEY `idx_branch` (`assigned_branch_id`),
+  KEY `idx_deleted` (`deleted_at`),
+  CONSTRAINT `fk_rider_branch` FOREIGN KEY (`assigned_branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `shopping_carts`
+--
+
+DROP TABLE IF EXISTS `shopping_carts`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `shopping_carts` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint unsigned NOT NULL,
+  `branch_id` bigint unsigned NOT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_user_branch` (`user_id`,`branch_id`),
+  KEY `branch_id` (`branch_id`),
+  CONSTRAINT `shopping_carts_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `shopping_carts_ibfk_2` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `system_settings`
+--
+
+DROP TABLE IF EXISTS `system_settings`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `system_settings` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `setting_key` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `setting_value` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `setting_type` enum('string','number','boolean','json') COLLATE utf8mb4_unicode_ci DEFAULT 'string',
+  `description` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `is_public` tinyint(1) DEFAULT '0' COMMENT 'Visible to frontend',
+  `is_editable` tinyint(1) DEFAULT '1',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `setting_key` (`setting_key`),
+  KEY `idx_key` (`setting_key`),
+  KEY `idx_public` (`is_public`)
+) ENGINE=InnoDB AUTO_INCREMENT=16 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `user_wishlist`
+--
+
+DROP TABLE IF EXISTS `user_wishlist`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `user_wishlist` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint unsigned NOT NULL,
+  `food_item_id` bigint unsigned NOT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_user_wishlist` (`user_id`,`food_item_id`),
+  KEY `food_item_id` (`food_item_id`),
+  KEY `idx_user` (`user_id`),
+  CONSTRAINT `user_wishlist_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `user_wishlist_ibfk_2` FOREIGN KEY (`food_item_id`) REFERENCES `food_items` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `users`
+--
+
+DROP TABLE IF EXISTS `users`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `users` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `username` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `email` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `phone_number` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `password` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `user_type` enum('customer','admin') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'customer',
+  `admin_role_id` int unsigned DEFAULT NULL,
+  `first_name` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `last_name` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `profile_image` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `is_phone_verified` tinyint(1) DEFAULT '0',
+  `is_active` tinyint(1) DEFAULT '1',
+  `terms_accepted_at` timestamp NULL DEFAULT NULL,
+  `last_login_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` timestamp NULL DEFAULT NULL COMMENT 'Soft delete',
+  `remember_token` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `username` (`username`),
+  UNIQUE KEY `phone_number` (`phone_number`),
+  UNIQUE KEY `email` (`email`),
+  KEY `admin_role_id` (`admin_role_id`),
+  KEY `idx_user_type` (`user_type`),
+  KEY `idx_phone` (`phone_number`),
+  KEY `idx_email` (`email`),
+  KEY `idx_active` (`is_active`),
+  KEY `idx_deleted` (`deleted_at`),
+  CONSTRAINT `users_ibfk_1` FOREIGN KEY (`admin_role_id`) REFERENCES `admin_roles` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Temporary view structure for view `vw_branch_performance`
+--
+
+DROP TABLE IF EXISTS `vw_branch_performance`;
+/*!50001 DROP VIEW IF EXISTS `vw_branch_performance`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `vw_branch_performance` AS SELECT 
+ 1 AS `branch_id`,
+ 1 AS `branch_name`,
+ 1 AS `branch_code`,
+ 1 AS `city`,
+ 1 AS `is_active`,
+ 1 AS `total_orders`,
+ 1 AS `completed_orders`,
+ 1 AS `cancelled_orders`,
+ 1 AS `total_revenue`,
+ 1 AS `avg_delivery_time_mins`,
+ 1 AS `total_riders`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `vw_customer_orders`
+--
+
+DROP TABLE IF EXISTS `vw_customer_orders`;
+/*!50001 DROP VIEW IF EXISTS `vw_customer_orders`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `vw_customer_orders` AS SELECT 
+ 1 AS `order_id`,
+ 1 AS `order_number`,
+ 1 AS `user_id`,
+ 1 AS `customer_name`,
+ 1 AS `phone_number`,
+ 1 AS `order_status`,
+ 1 AS `payment_method`,
+ 1 AS `payment_status`,
+ 1 AS `subtotal`,
+ 1 AS `service_fee`,
+ 1 AS `delivery_fee`,
+ 1 AS `discount_amount`,
+ 1 AS `rider_tip`,
+ 1 AS `total_amount`,
+ 1 AS `branch_name`,
+ 1 AS `created_at`,
+ 1 AS `delivered_at`,
+ 1 AS `delivery_time_mins`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `vw_daily_order_summary`
+--
+
+DROP TABLE IF EXISTS `vw_daily_order_summary`;
+/*!50001 DROP VIEW IF EXISTS `vw_daily_order_summary`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `vw_daily_order_summary` AS SELECT 
+ 1 AS `order_date`,
+ 1 AS `branch_id`,
+ 1 AS `branch_name`,
+ 1 AS `total_orders`,
+ 1 AS `completed_orders`,
+ 1 AS `cancelled_orders`,
+ 1 AS `total_food_sales`,
+ 1 AS `total_service_fees`,
+ 1 AS `total_delivery_fees`,
+ 1 AS `total_discounts`,
+ 1 AS `total_revenue`,
+ 1 AS `avg_delivery_time_mins`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `vw_pending_orders`
+--
+
+DROP TABLE IF EXISTS `vw_pending_orders`;
+/*!50001 DROP VIEW IF EXISTS `vw_pending_orders`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `vw_pending_orders` AS SELECT 
+ 1 AS `id`,
+ 1 AS `order_number`,
+ 1 AS `order_status`,
+ 1 AS `payment_method`,
+ 1 AS `payment_status`,
+ 1 AS `total_amount`,
+ 1 AS `created_at`,
+ 1 AS `admin_reminder_count`,
+ 1 AS `minutes_since_order`,
+ 1 AS `customer_id`,
+ 1 AS `customer_name`,
+ 1 AS `customer_phone`,
+ 1 AS `branch_id`,
+ 1 AS `branch_name`,
+ 1 AS `rider_id`,
+ 1 AS `rider_name`,
+ 1 AS `rider_phone`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `vw_rider_performance`
+--
+
+DROP TABLE IF EXISTS `vw_rider_performance`;
+/*!50001 DROP VIEW IF EXISTS `vw_rider_performance`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `vw_rider_performance` AS SELECT 
+ 1 AS `rider_id`,
+ 1 AS `rider_code`,
+ 1 AS `full_name`,
+ 1 AS `phone_number`,
+ 1 AS `assigned_branch_id`,
+ 1 AS `branch_name`,
+ 1 AS `is_active`,
+ 1 AS `is_available`,
+ 1 AS `average_rating`,
+ 1 AS `total_ratings`,
+ 1 AS `total_deliveries`,
+ 1 AS `successful_deliveries`,
+ 1 AS `cancelled_deliveries`,
+ 1 AS `total_tips_earned`,
+ 1 AS `avg_delivery_time_mins`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Final view structure for view `vw_branch_performance`
+--
+
+/*!50001 DROP VIEW IF EXISTS `vw_branch_performance`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`root`@`localhost` SQL SECURITY DEFINER */
+/*!50001 VIEW `vw_branch_performance` AS select `b`.`id` AS `branch_id`,`b`.`branch_name` AS `branch_name`,`b`.`branch_code` AS `branch_code`,`b`.`city` AS `city`,`b`.`is_active` AS `is_active`,count(distinct `o`.`id`) AS `total_orders`,count(distinct (case when (`o`.`order_status` = 'delivered') then `o`.`id` end)) AS `completed_orders`,count(distinct (case when (`o`.`order_status` = 'cancelled') then `o`.`id` end)) AS `cancelled_orders`,coalesce(sum((case when (`o`.`order_status` = 'delivered') then `o`.`total_amount` end)),0) AS `total_revenue`,coalesce(avg((case when (`o`.`order_status` = 'delivered') then timestampdiff(MINUTE,`o`.`created_at`,`o`.`delivered_at`) end)),0) AS `avg_delivery_time_mins`,count(distinct `r`.`id`) AS `total_riders` from ((`branches` `b` left join `orders` `o` on((`b`.`id` = `o`.`branch_id`))) left join `riders` `r` on(((`b`.`id` = `r`.`assigned_branch_id`) and (`r`.`deleted_at` is null)))) where (`b`.`deleted_at` is null) group by `b`.`id`,`b`.`branch_name`,`b`.`branch_code`,`b`.`city`,`b`.`is_active` */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `vw_customer_orders`
+--
+
+/*!50001 DROP VIEW IF EXISTS `vw_customer_orders`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`root`@`localhost` SQL SECURITY DEFINER */
+/*!50001 VIEW `vw_customer_orders` AS select `o`.`id` AS `order_id`,`o`.`order_number` AS `order_number`,`o`.`user_id` AS `user_id`,concat(`u`.`first_name`,' ',`u`.`last_name`) AS `customer_name`,`u`.`phone_number` AS `phone_number`,`o`.`order_status` AS `order_status`,`o`.`payment_method` AS `payment_method`,`o`.`payment_status` AS `payment_status`,`o`.`subtotal` AS `subtotal`,`o`.`service_fee` AS `service_fee`,`o`.`delivery_fee` AS `delivery_fee`,`o`.`discount_amount` AS `discount_amount`,`o`.`rider_tip` AS `rider_tip`,`o`.`total_amount` AS `total_amount`,`b`.`branch_name` AS `branch_name`,`o`.`created_at` AS `created_at`,`o`.`delivered_at` AS `delivered_at`,timestampdiff(MINUTE,`o`.`created_at`,`o`.`delivered_at`) AS `delivery_time_mins` from ((`orders` `o` join `users` `u` on((`o`.`user_id` = `u`.`id`))) join `branches` `b` on((`o`.`branch_id` = `b`.`id`))) order by `o`.`created_at` desc */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `vw_daily_order_summary`
+--
+
+/*!50001 DROP VIEW IF EXISTS `vw_daily_order_summary`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`root`@`localhost` SQL SECURITY DEFINER */
+/*!50001 VIEW `vw_daily_order_summary` AS select cast(`o`.`created_at` as date) AS `order_date`,`o`.`branch_id` AS `branch_id`,`b`.`branch_name` AS `branch_name`,count(0) AS `total_orders`,sum((case when (`o`.`order_status` = 'delivered') then 1 else 0 end)) AS `completed_orders`,sum((case when (`o`.`order_status` = 'cancelled') then 1 else 0 end)) AS `cancelled_orders`,sum((case when (`o`.`order_status` = 'delivered') then `o`.`subtotal` else 0 end)) AS `total_food_sales`,sum((case when (`o`.`order_status` = 'delivered') then `o`.`service_fee` else 0 end)) AS `total_service_fees`,sum((case when (`o`.`order_status` = 'delivered') then `o`.`delivery_fee` else 0 end)) AS `total_delivery_fees`,sum((case when (`o`.`order_status` = 'delivered') then `o`.`discount_amount` else 0 end)) AS `total_discounts`,sum((case when (`o`.`order_status` = 'delivered') then `o`.`total_amount` else 0 end)) AS `total_revenue`,avg((case when (`o`.`order_status` = 'delivered') then timestampdiff(MINUTE,`o`.`created_at`,`o`.`delivered_at`) end)) AS `avg_delivery_time_mins` from (`orders` `o` join `branches` `b` on((`o`.`branch_id` = `b`.`id`))) group by cast(`o`.`created_at` as date),`o`.`branch_id`,`b`.`branch_name` */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `vw_pending_orders`
+--
+
+/*!50001 DROP VIEW IF EXISTS `vw_pending_orders`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`root`@`localhost` SQL SECURITY DEFINER */
+/*!50001 VIEW `vw_pending_orders` AS select `o`.`id` AS `id`,`o`.`order_number` AS `order_number`,`o`.`order_status` AS `order_status`,`o`.`payment_method` AS `payment_method`,`o`.`payment_status` AS `payment_status`,`o`.`total_amount` AS `total_amount`,`o`.`created_at` AS `created_at`,`o`.`admin_reminder_count` AS `admin_reminder_count`,timestampdiff(MINUTE,`o`.`created_at`,now()) AS `minutes_since_order`,`u`.`id` AS `customer_id`,concat(`u`.`first_name`,' ',`u`.`last_name`) AS `customer_name`,`u`.`phone_number` AS `customer_phone`,`b`.`id` AS `branch_id`,`b`.`branch_name` AS `branch_name`,`r`.`id` AS `rider_id`,`r`.`full_name` AS `rider_name`,`r`.`phone_number` AS `rider_phone` from (((`orders` `o` join `users` `u` on((`o`.`user_id` = `u`.`id`))) join `branches` `b` on((`o`.`branch_id` = `b`.`id`))) left join `riders` `r` on((`o`.`rider_id` = `r`.`id`))) where (`o`.`order_status` in ('pending','confirmed','processing','ready_for_pickup')) order by (case `o`.`order_status` when 'pending' then 1 when 'confirmed' then 2 when 'processing' then 3 when 'ready_for_pickup' then 4 end),`o`.`created_at` */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `vw_rider_performance`
+--
+
+/*!50001 DROP VIEW IF EXISTS `vw_rider_performance`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`root`@`localhost` SQL SECURITY DEFINER */
+/*!50001 VIEW `vw_rider_performance` AS select `r`.`id` AS `rider_id`,`r`.`rider_id` AS `rider_code`,`r`.`full_name` AS `full_name`,`r`.`phone_number` AS `phone_number`,`r`.`assigned_branch_id` AS `assigned_branch_id`,`b`.`branch_name` AS `branch_name`,`r`.`is_active` AS `is_active`,`r`.`is_available` AS `is_available`,`r`.`average_rating` AS `average_rating`,`r`.`total_ratings` AS `total_ratings`,`r`.`total_deliveries` AS `total_deliveries`,count(distinct (case when (`o`.`order_status` = 'delivered') then `o`.`id` end)) AS `successful_deliveries`,count(distinct (case when ((`o`.`order_status` = 'cancelled') and (`o`.`rider_id` = `r`.`id`)) then `o`.`id` end)) AS `cancelled_deliveries`,coalesce(sum((case when (`o`.`order_status` = 'delivered') then `o`.`rider_tip` end)),0) AS `total_tips_earned`,avg((case when (`o`.`order_status` = 'delivered') then timestampdiff(MINUTE,`o`.`picked_up_at`,`o`.`delivered_at`) end)) AS `avg_delivery_time_mins` from ((`riders` `r` left join `branches` `b` on((`r`.`assigned_branch_id` = `b`.`id`))) left join `orders` `o` on((`r`.`id` = `o`.`rider_id`))) where (`r`.`deleted_at` is null) group by `r`.`id`,`r`.`rider_id`,`r`.`full_name`,`r`.`phone_number`,`r`.`assigned_branch_id`,`b`.`branch_name`,`r`.`is_active`,`r`.`is_available`,`r`.`average_rating`,`r`.`total_ratings`,`r`.`total_deliveries` */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+/*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
+
+/*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
+/*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
+/*!40014 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS */;
+/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
+/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+/*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
+
+-- Dump completed on 2025-12-02 19:28:49
