@@ -1,0 +1,80 @@
+# ===================
+# OS Generated Files
+# ===================
+.DS_Store
+Thumbs.db
+*.log
+nul
+
+# ===================
+# IDE / Editor
+# ===================
+.idea/
+.vscode/
+.fleet/
+.nova/
+.zed/
+*.swp
+*.swo
+
+# ===================
+# Backend (Laravel)
+# ===================
+backend/.env
+backend/.env.backup
+backend/.env.production
+backend/.phpactor.json
+backend/.phpunit.result.cache
+backend/.phpunit.cache
+backend/auth.json
+backend/node_modules/
+backend/public/build/
+backend/public/hot
+backend/public/storage
+backend/storage/*.key
+backend/storage/pail/
+backend/vendor/
+backend/Homestead.json
+backend/Homestead.yaml
+
+# ===================
+# Web (Next.js)
+# ===================
+web/.env*
+web/node_modules/
+web/.pnp
+web/.pnp.*
+web/.yarn/*
+!web/.yarn/patches
+!web/.yarn/plugins
+!web/.yarn/releases
+!web/.yarn/versions
+web/coverage/
+web/.next/
+web/out/
+web/build/
+web/*.pem
+web/npm-debug.log*
+web/yarn-debug.log*
+web/yarn-error.log*
+web/.pnpm-debug.log*
+web/.vercel
+web/*.tsbuildinfo
+web/next-env.d.ts
+
+# ===================
+# Mobile (React Native)
+# ===================
+# Ignore entire mobile folder
+mobile/
+
+# ===================
+# Database folder
+# ===================
+database/*.sqlite
+
+# ===================
+# Docs
+# ===================
+# Keep docs but ignore any generated files
+docs/*.pdf.tmp

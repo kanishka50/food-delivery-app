@@ -1,0 +1,432 @@
+    
+Project Proposal   
+Hotel Chain & Food Delivery Service Website Development
+Date: 14/11/2025   
+    
+
+1. PROJECT OVERVIEW
+
+1.1 Business Model
+The system acts as an intermediary platform connecting customers with a restaurant. The client company:
+•	Receives orders from customers through website and mobile application
+•	Manually calls the restaurant to place orders
+•	Provides delivery service through registered riders
+•	Collects payment from customers (including service fee and delivery charges)
+•	Pays the restaurant for food items separately
+
+1.2 Platform Description
+Website
+Customer facing web platform displaying restaurant menu, allowing food ordering, payment processing, and order tracking.
+
+Mobile Application
+Dual purpose mobile app (Android & iOS) with role based interfaces:
+•	Customer Interface: Browse menu, place orders, track delivery, manage profile
+•	Rider Interface: Receive order notifications, accept deliveries, update order status, view earnings
+
+Admin Panel
+Web based management system for order processing, menu management, rider management, pricing configuration, and reporting.
+
+1.3 Initial Scope
+Phase 1: Two restaurant branches implementation
+Future: Expandable to multiple branches across Sri Lanka
+
+2. TECHNICAL STACK
+
+2.1 Backend
+•	Framework: Laravel (PHP)
+•	Database: MySQL
+•	API Architecture: RESTful APIs
+•	Authentication: Laravel Sanctum/Passport
+
+2.2 Frontend (Website)
+•	Framework: Next.js 14+ (React)
+•	Rendering: Server-Side Rendering (SSR) & Static Site Generation (SSG)
+•	Styling: Tailwind CSS
+•	State Management: React Context API / Zustand
+•	API Communication: Axios / TanStack Query (React Query)
+•	Maps Integration: @react-google-maps/api
+•	Real-time Updates: Socket.io Client (for order tracking)
+
+2.3 Admin Panel
+•	Framework: Filament (Laravel Admin Panel)
+•	Features: Built-in CRUD operations, role management, reporting dashboard
+
+2.4 Mobile Applications
+•	Framework: React Native
+•	Platform: iOS & Android (Single codebase)
+•	API Communication: Axios/Fetch for Laravel REST APIs
+
+
+2.5 Third Party Integrations
+•	Payment Gateway: PayHere (Sri Lanka)
+•	SMS Service: Notify.lk SMS Gateway
+•	Email Service: Mailgun SMTP
+•	Maps & Location: Google Maps Platform (Maps API, Directions API, Geolocation API)
+
+2.6 Hosting & Infrastructure
+•	Web Hosting: IONOS
+•	Database: MySQL 8.0+
+•	Web Server: Apache/Nginx
+•	SSL Certificate: IONOS SSL
+
+2.7 Server Requirements
+•	PHP 8.1 or higher
+•	MySQL 8.0 or higher
+•	Composer (Dependency manager)
+•	Node.js 18.17+ & NPM/PNPM (For Next.js and React Native)
+•	Next.js requires separate hosting (Vercel recommended) or Node.js server
+
+2.8 Development Tools
+•	Version Control: Git
+•	API Testing: Postman
+•	Package Manager: Composer (Backend), NPM/PNPM (Frontend/Mobile)
+
+2.9 Project Structure (Monorepo)
+•	/backend - Laravel API + Filament Admin Panel
+•	/web - Next.js Customer Website (SSR/SSG)
+•	/mobile - React Native Mobile App (iOS & Android)
+•	/docs - Project documentation
+•	/database - SQL schemas and migrations
+
+2.10 Architecture Overview
+•	Laravel serves as API-only backend (no Blade views for customers)
+•	Filament Admin Panel runs within Laravel for admin users
+•	Next.js connects to Laravel REST APIs for all data
+•	React Native connects to same Laravel REST APIs
+•	All three frontends (Web, Mobile Customer, Mobile Rider) share the same API
+
+
+
+
+
+
+
+
+3. USER ROLES
+
+3.1 Customer
+•	Browse and order food from website or mobile app
+•	Make payments online or cash on delivery
+•	Track order status in real-time
+•	Rate and review food items and riders
+
+3.2 Rider/Delivery Boy
+•	Access mobile app with rider-specific interface
+•	Receive and accept delivery orders
+•	Update order status during pickup and delivery
+•	Collect cash payments and tips from customers
+
+3.3 Admin/System Handler
+•	Manage orders and manually call restaurant
+•	Register and manage riders
+•	Manage restaurant branches (add branch details, GPS coordinates, delivery radius)
+•	Update menu items, prices, and offers
+•	Configure service fees and delivery rates
+•	Monitor live orders and generate reports
+•	Manage role based access for admin users
+
+
+
+
+
+
+
+
+
+
+4. CORE FEATURES BY MODULE
+
+4.1 User Management
+Customer Registration & Authentication
+•	Registration required (no guest checkout)
+•	Phone number (mandatory) and email (optional)
+•	OTP verification for first time registration
+•	Username and password for subsequent logins
+•	Multiple delivery addresses per user account
+•	Address selection at checkout
+
+Rider Registration & Authentication
+•	Riders are registered by admin through the admin panel only (riders cannot self-register)
+•	Unique Rider ID assigned by system
+•	Login using phone number and password
+•	Riders use the same mobile app as customers, but after login, they are automatically redirected to the Rider Interface based on their role.
+•	Customer users will NOT see or access rider features.
+
+Admin Access
+•	Role based access control in admin panel
+•	Multiple admin roles with different permissions (details TBD)
+
+
+
+
+
+
+
+4.2 Menu & Product Management
+
+Menu Display
+•	Display all food items with details (name, description, image, price)
+•	Categorized menu (e.g., Pizza, Burgers, Drinks)
+•	Item variations based on size (Small, Medium, Large)
+•	Menu displayed based on user's nearest branch (location-based)
+
+Menu Management (Admin)
+•	Add, edit, delete food items
+•	Upload product images
+•	Set prices for different item variations
+•	Create and manage food categories
+•	Mark items as available/unavailable
+•	Manage menu items per branch (each branch can have different availability)
+•	Assign food items to specific branches
+
+Offers & Promotions
+•	Admin can create offers for specific food items
+•	Display offers on website and mobile app
+•	Apply discounts automatically at checkout
+
+4.3 Order Management
+Customer Ordering Process
+•	Browse menu and add items to cart (from nearest branch only)
+•	View cart with item details and total calculation
+•	Select delivery address from saved addresses
+•	Choose payment method (online or cash on delivery)
+•	Add rider tip at checkout
+•	Place order and receive confirmation
+
+Order Status Tracking
+•	Order Received: After customer places order (updated by admin)
+•	Order Processing: After admin calls restaurant and confirms order
+•	Picked Up: After rider collects food from restaurant (updated by rider)
+•	Delivering: During transit to customer location
+•	Delivered: After successful delivery (updated by rider)
+•	Real time status visible on customer website and mobile app
+Order History
+•	Complete order history visible to customers
+•	Order details including items, prices, and delivery information
+•	Reorder functionality
+
+Order Verification Code
+•	System generates a unique 4-digit verification code for each order
+•	Code is displayed to customer in the app/website after order creation
+•	Code is also visible to rider in the order details
+•	Before delivering the order, rider must ask customer for the verification code
+•	Rider enters the code in the app to confirm successful delivery
+•	This ensures secure handover and prevents delivery fraud
+
+Admin Order Management
+•	Live dashboard showing pending orders with alert notifications for new orders
+•	New order alert with sound/visual notification on dashboard
+•	Automatic reminder every 5 minutes for unconfirmed orders until admin calls restaurant and confirms order status
+•	Manually call restaurant and create order
+•	Update order status to "Processing"
+•	View all order details and customer information
+•	Order history and search functionality
+•	Filter orders by branch
+
+4.4 Payment & Pricing
+Payment Methods
+•	Online Payment: Integrated with PayHere payment gateway
+•	Cash on Delivery: Customer pays rider in cash
+•	All payments collected go to client company Stripe account
+
+Pricing Structure
+•	Restaurant Food Price: Base price set by restaurant
+•	Service Fee: Percentage-based fee added by client (configurable in admin panel)
+•	Delivery Fee: Distance-based calculation (price per km configurable in admin panel)
+•	Rider Tip: Optional, added by customer at checkout
+•	Total = Food Price + Service Fee + Delivery Fee + Tip
+
+Admin Pricing Configuration
+•	Set and update service fee percentage
+•	Set and update delivery charge per kilometer
+•	Manage branch-wise delivery radius (see Branch & Location Management section)
+
+Invoicing
+•	Generate invoice/receipt after order completion
+•	Send invoice to customer email via SMTP service
+•	Invoice includes itemized breakdown of all charges
+
+
+
+
+
+
+
+4.5 Delivery Management
+Rider Assignment
+•	Automatic notification to all available riders when order is ready
+•	First rider to accept gets assigned the delivery
+
+Rider Mobile App Features
+•	Receive real-time order notifications
+•	Accept or decline delivery orders
+•	View order details (customer name, phone number, address, items, amount, payment method)
+•	View 4-digit verification code for order handover
+•	Navigate to restaurant and customer using Google Maps integration
+•	Update order status (Picked Up, Delivered)
+•	Enter verification code to confirm delivery completion
+•	Custom calendar showing daily order history
+•	View daily tips collected
+
+Real-Time Tracking
+•	Track rider location using Google Location Services API
+•	Display rider route on customer website and mobile app
+•	Live tracking from pickup to delivery
+•	Estimated delivery time calculation
+
+Cash Handling (Cash on Delivery)
+•	Rider collects cash from customer
+•	Rider hands over collected delivery fees to client company
+•	Rider keeps tips collected during delivery
+•	Daily tip summary visible to rider in app
+
+
+Rider Payments
+•	Riders receive monthly salary from client company
+•	Tips are retained by riders on a daily basis
+
+4.6 Ratings & Reviews
+Customer Reviews
+•	Rate food items (1-5 stars) after delivery
+•	Write review for food quality and taste
+•	Rate rider service (1-5 stars) after delivery
+•	Write review for rider behavior and delivery speed
+
+Admin Review Management
+•	View all food item ratings and reviews
+•	Filter low-rated food items
+•	View rider ratings and performance
+•	Filter low-rated riders
+
+4.7 Reporting & Analytics
+Admin Reports
+•	Product Movement Reports: Sales by food item, category, time period, per branch
+•	Financial Reports: Revenue breakdown (food sales, service fees, delivery charges)
+•	Restaurant Payment Reports: Payment details and amounts owed to each restaurant/branch
+•	Order Reports: Total orders, completed, cancelled by date range, per branch
+•	Rider Performance Reports: Deliveries completed, ratings, earnings
+•	Branch Performance Reports: Sales comparison across branches
+•	Export all reports as Excel (.xlsx) files
+
+
+
+
+4.8 Branch & Location Management
+Branch Setup (Admin Panel)
+•	Add new restaurant branches with:
+-	Branch name 
+-	Branch address 
+-	GPS coordinates (latitude/longitude) 
+-	Delivery radius in kilometers (each branch has its own radius) 
+-	Branch contact number
+-	Operating hours
+•	Edit or deactivate existing branches
+•	Manage menu availability per branch
+•	Currently configured for 2 branches
+
+User Location Detection
+•	When user opens the app/website, system automatically detects user's GPS location
+•	System calculates distance from user to ALL active branches
+•	Identifies the nearest branch to user's location
+•	Checks if user is within that branch's delivery radius
+
+Branch Selection Logic
+•	Step 1: Get user's current GPS location
+•	Step 2: Calculate distance to all branches
+•	Step 3: Find nearest branch
+•	Step 4: Check if user is within that branch's delivery radius
+-	If YES: Display that branch's menu and allow ordering
+-	If NO: Check next nearest branch
+-	If NO branch covers user's location: Display "Delivery not available in your area
+
+
+
+
+Per-Branch Delivery Radius
+•	Each branch has its own configurable delivery radius (in KM) · 
+•	Admin can set different radius for each branch based on location needs 
+•	This allows expansion to any location in Sri Lanka· 
+•	Urban branches can have smaller radius, rural branches can have larger radius
+
+Order Processing by Branch
+•	Orders are automatically assigned to the branch serving that customer's location · 
+•	Admin dashboard shows orders filtered by branch · 
+•	Each branch manages its own orders independently · 
+•	Riders are assigned to orders from their designated branch
+
+Location-Based Features Summary
+•	Automatic user location detection on app/website open · 
+•	Nearest branch identification · 
+•	Delivery radius validation per branch · 
+•	Branch-specific menu display · 
+•	Branch-specific order management · 
+•	Scalable for future expansion to any location
+
+Dashboard Analytics
+•	Real-time pending orders count
+•	Today's revenue and order statistics
+•	Active riders count
+•	Popular food items
+
+
+
+
+4.8 Additional Features
+Communication
+•	Display customer support hotline number on website
+•	Click to call functionality for hotline
+•	SMTP email service for sending invoices and receipts
+•	SMS service via OTP for user registration
+
+Terms & Conditions
+•	Display terms and conditions page
+•	User acceptance required during registration
+
+Notifications
+•	SMS notifications for OTP verification
+•	Email notifications for order confirmation and invoices
+•	In app notifications for riders (order assignments)
+
+5. Payment Terms, Cost & Additional Shop Billing Structure
+
+Total Project Cost - LKR 440,000 (Negotiable)
+
+Payment Schedule
+•	30% – Upon Project Initiation
+•	40% – After Completion of Core Development
+•	30% – Upon Final Delivery & Launch
+Payments can be made via bank transfer or any agreed method.
+
+
+
+
+
+5.1 Additional Shop Billing & Multi Shop Deployment
+Your business operates multiple shops, and each location requires separate billing setup. Below are the options based on your needs:
+
+1. Using Exact Copies (No API Changes) – FREE for First 4 Builds
+If the additional shops use the exact same system, without changing:
+•	Backend
+•	API routes
+•	App icons
+•	Functionality
+Then the first four (4) additional builds are completely free of charge (Negotiable).
+
+2. If New Backend, New API, New App Icons, or New Deployment Is Required
+If the additional shop needs its own independent:
+•	Backend
+•	API structure
+•	Branding / App Icons
+•	Separate deployment
+
+Then the following charges apply:
+•	For the first required customized builds: LKR 15,000 per build (Negotiable)
+•	For each additional build after that: LKR 25,000 per build (Negotiable)
+
+Thank you, and we look forward to working with you.
+
+Contact Information  
+Creatx Software  
+📞 Phone: +44 7916 177140  
+📧 Email: info@creatxsoftware.com  
+🌐 Website: www.creatxsoftware.com   
